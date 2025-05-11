@@ -1,0 +1,4 @@
+numpy>=1.24.0
+PyQt5>=5.15.0
+Pillow>=10.0.0  # For Image operations
+tqdm>=4.65.0    # For progress bars 

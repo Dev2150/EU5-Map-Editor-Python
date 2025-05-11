@@ -1,0 +1,11 @@
+﻿Water;00297A;Water;Ocean/lake/river
+Wetlands;2495AF;Wetlands;Water-saturated areas (e.g. swamps, marshes)
+Flatlands;43D95A;Flatlands;Level terrain with minimal elevation change
+Rolling Flatlands;3EB34E;Rolling Flatlands;Gently undulating, low-relief land
+Hills;899988;Hills;Rounded elevations lower than mountains
+Mountainous;bf4040;Mountainous;Regions dominated by steep mountains
+Plateau;B38B36;Plateau;Elevated flat-topped landform
+Irregular Plateau;8C6B2A;Irregular Plateau;Elevated flat area with uneven surface features
+High Mountains;df2020;High Mountains;Exceptionally tall, rugged peaks
+High Plateau;B30080;High Plateau;Elevated plateau at significant altitude
+Impassable;FF0000;Impassable;Terrain too extreme (eg, cliffs, glaciers) to cross
