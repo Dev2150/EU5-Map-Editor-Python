@@ -7,11 +7,12 @@ from PyQt5.QtWidgets import QFileDialog, QDialog, QComboBox
 from numpy import ndarray
 from datetime import datetime
 import os
+import time
 import json
 
-from src.CustomGraphicsView import CustomGraphicsView
-from src.auxiliary import rgb_to_hex, hex_to_rgb, create_legend_item, convert_key_string_to_qt
-from src.config import UNKNOWN_REGION, active_style, inactive_style
+from CustomGraphicsView import CustomGraphicsView
+from auxiliary import rgb_to_hex, hex_to_rgb, create_legend_item, convert_key_string_to_qt
+from config import UNKNOWN_REGION, active_style, inactive_style
 
 DEFAULT_MAP_TYPE = 'climate'
 
@@ -319,11 +320,35 @@ class MapEditor(QWidget):
                     self.picker_lbl_description.setText('Invalid')
                 return
             elif event.key() == Qt.Key_V:
+                start_time_block = time.perf_counter()
+                
+                # Instruction 1
+                prev_time = time.perf_counter()
                 cursor_pos = self.view.mapFromGlobal(self.cursor().pos())
+                current_time = time.perf_counter()
+                print(f"Time for cursor_pos: {current_time - prev_time:.1f} s")
+                prev_time = current_time
+
+                # Instruction 2
                 scene_pos = self.view.mapToScene(cursor_pos)
+                current_time = time.perf_counter()
+                print(f"Time for scene_pos: {current_time - prev_time:.1f} s")
+                prev_time = current_time
+
+                # Instruction 3
                 color_HEX = self.fill_region(int(scene_pos.x()), int(scene_pos.y()))
+                current_time = time.perf_counter()
+                print(f"Time for fill_region: {current_time - prev_time:.1f} s")
+                prev_time = current_time
+
+                # Instruction 4 (conditional)
                 if color_HEX:
                     self.locations[color_HEX][self.picker_map_type] = self.picker_key
+                    current_time = time.perf_counter()
+                    print(f"Time for updating locations: {current_time - prev_time:.1f} s")
+                
+                end_time_block = time.perf_counter()
+                print(f"Total time for Key_V block: {end_time_block - start_time_block:.1f} s\n")
             elif event.key() == Qt.Key_Z:
                 self.undo_last_fill()
             elif event.key() == Qt.Key_Y:
@@ -364,68 +389,196 @@ class MapEditor(QWidget):
         QTimer.singleShot(1000, lambda: self.search_box.setStyleSheet(""))
 
     def fill_region(self, x: int, y: int) -> str | None:
+        start_time_fill_region = time.perf_counter()
+        prev_time = start_time_fill_region
+
+        # Instruction 1: Initial checks
         if not self.picker_map_type or not (0 <= y < self.original_array.shape[0] and 0 <= x < self.original_array.shape[1]):
+            current_time = time.perf_counter()
+            print(f"fill_region - Time for initial boundary/picker_map_type check: {current_time - prev_time:.1f} s")
             return
+        current_time = time.perf_counter()
+        print(f"fill_region - Time for initial boundary/picker_map_type check: {current_time - prev_time:.1f} s")
+        prev_time = current_time
+
+        # Instruction 2: Current map type check
         if self.current_map_type != self.picker_map_type:
+            current_time = time.perf_counter()
+            print(f"fill_region - Time for current_map_type check: {current_time - prev_time:.1f} s")
             return
+        current_time = time.perf_counter()
+        print(f"fill_region - Time for current_map_type check: {current_time - prev_time:.1f} s")
+        prev_time = current_time
 
         # Color to be changed
+        # Instruction 3: Get target_color_RGB
         target_color_RGB = tuple(self.original_array[y, x])
+        current_time = time.perf_counter()
+        print(f"fill_region - Time for target_color_RGB: {current_time - prev_time:.1f} s")
+        prev_time = current_time
+
+        # Instruction 4: Get target_color_HEX
         target_color_HEX = rgb_to_hex(*target_color_RGB)
+        current_time = time.perf_counter()
+        print(f"fill_region - Time for target_color_HEX: {current_time - prev_time:.1f} s")
+        prev_time = current_time
+        
+        # Instruction 5: Check if target_color_HEX in locations
         if target_color_HEX not in self.locations:
+            current_time = time.perf_counter()
+            print(f"fill_region - Time for locations check: {current_time - prev_time:.1f} s")
             return
+        current_time = time.perf_counter()
+        print(f"fill_region - Time for locations check: {current_time - prev_time:.1f} s")
+        prev_time = current_time
 
         # Get the target feature and color
+        # Instruction 6: Get feature_key
         feature_key = self.locations[target_color_HEX][self.picker_map_type]
+        current_time = time.perf_counter()
+        print(f"fill_region - Time for feature_key retrieval: {current_time - prev_time:.1f} s")
+        prev_time = current_time
+
+        # Instruction 7: Check if feature_key in labels
         if feature_key not in self.feature_data[self.picker_map_type]['labels']:
+            current_time = time.perf_counter()
+            print(f"fill_region - Time for feature_key in labels check: {current_time - prev_time:.1f} s")
             return
+        current_time = time.perf_counter()
+        print(f"fill_region - Time for feature_key in labels check: {current_time - prev_time:.1f} s")
+        prev_time = current_time
 
         # Store the change in undo stack before applying the new feature
+        # Instruction 8: Append to undo_stack
         self.undo_stack.append({
             'map_type': self.picker_map_type,
             'location_HEX': target_color_HEX,
             'old_feature': feature_key,
             'new_feature': self.picker_key
         })
+        current_time = time.perf_counter()
+        print(f"fill_region - Time for undo_stack.append: {current_time - prev_time:.1f} s")
+        prev_time = current_time
+
+        # Instruction 9 & 10: Manage undo_stack size
         if len(self.undo_stack) > self.max_undo_steps:
             self.undo_stack.pop(0)
+        current_time = time.perf_counter()
+        print(f"fill_region - Time for undo_stack size management: {current_time - prev_time:.1f} s")
+        prev_time = current_time
+        
+        # Instruction 11: Clear redo_stack
         self.redo_stack.clear()
+        current_time = time.perf_counter()
+        print(f"fill_region - Time for redo_stack.clear: {current_time - prev_time:.1f} s")
+        prev_time = current_time
 
         # Update the location's feature
+        # Instruction 12: Update self.locations
         self.locations[target_color_HEX][self.picker_map_type] = self.picker_key
+        current_time = time.perf_counter()
+        print(f"fill_region - Time for updating self.locations: {current_time - prev_time:.1f} s")
+        prev_time = current_time
         
         # Apply the visual change
+        # Instruction 13: Call _apply_feature_change
         self._apply_feature_change(self.picker_map_type, target_color_RGB, self.picker_pixmap_RGB)
+        current_time = time.perf_counter()
+        print(f"fill_region - Time for _apply_feature_change: {current_time - prev_time:.1f} s")
+        prev_time = current_time
 
+        end_time_fill_region = time.perf_counter()
+        print(f"fill_region - Total time: {end_time_fill_region - start_time_fill_region:.4f} s\n")
         return target_color_HEX
 
     def _apply_feature_change(self, map_type: str, target_color_RGB: tuple, new_color_RGB: tuple) -> None:
         """Helper method to apply visual changes to the pixmap"""
-        # Create QImage from pixmap for modification
+        start_time_block = time.perf_counter()
+        prev_time = start_time_block
+        print(f"\n--- _apply_feature_change ({map_type}) ---")
+
+        # Instruction 1: Set map type
         self.set_map_type(map_type)
+        current_time = time.perf_counter()
+        print(f"_apply_feature_change - Time for set_map_type: {current_time - prev_time:.1f} s")
+        prev_time = current_time
 
+        # Instruction 2: Get QImage from pixmap
         image_feature_pixmap = self.feature_pixmaps[map_type].toImage()
-        width, height = image_feature_pixmap.width(), image_feature_pixmap.height()
+        current_time = time.perf_counter()
+        print(f"_apply_feature_change - Time for toImage(): {current_time - prev_time:.1f} s")
+        prev_time = current_time
 
+        # Instruction 3: Get image dimensions
+        width, height = image_feature_pixmap.width(), image_feature_pixmap.height()
+        current_time = time.perf_counter()
+        print(f"_apply_feature_change - Time for width(), height(): {current_time - prev_time:.1f} s")
+        prev_time = current_time
 
         # Convert QImage to numpy array for faster processing
+        # Instruction 4: Get image bits
         ptr = image_feature_pixmap.bits()
+        current_time = time.perf_counter()
+        print(f"_apply_feature_change - Time for bits(): {current_time - prev_time:.1f} s")
+        prev_time = current_time
+
+        # Instruction 5: Set size of pointer
         ptr.setsize(height * width * 4)  # 4 bytes per pixel (RGBA)
+        current_time = time.perf_counter()
+        print(f"_apply_feature_change - Time for setsize(): {current_time - prev_time:.1f} s")
+        prev_time = current_time
+
+        # Instruction 6: Create numpy array from buffer
         arr_new_image = np.frombuffer(ptr, np.uint8).reshape((height, width, 4))
+        current_time = time.perf_counter()
+        print(f"_apply_feature_change - Time for np.frombuffer().reshape(): {current_time - prev_time:.1f} s")
+        prev_time = current_time
 
         # Find matching region in original array
-        mask = (self.original_array == target_color_RGB).all(axis=2)
+        # Optimized mask creation using component-wise comparison
+        mask = ((self.original_array[:,:,0] == target_color_RGB[0]) & 
+                (self.original_array[:,:,1] == target_color_RGB[1]) & 
+                (self.original_array[:,:,2] == target_color_RGB[2]))
+        current_time = time.perf_counter()
+        print(f"_apply_feature_change - Time for mask creation: {current_time - prev_time:.1f} s")
+        prev_time = current_time
 
-        # Update the array
-        arr_new_image[mask] = [new_color_RGB[2], new_color_RGB[1], new_color_RGB[0], 255]  # BGR order
+        # Create color array once for faster assignment
+        color_array = np.array([new_color_RGB[2], new_color_RGB[1], new_color_RGB[0], 255], dtype=np.uint8)
+        
+        # Use broadcasting for faster assignment
+        arr_new_image[mask] = color_array
+        current_time = time.perf_counter()
+        print(f"_apply_feature_change - Time for arr_new_image[mask] assignment: {current_time - prev_time:.1f} s")
+        prev_time = current_time
 
         # Convert back to QPixmap
+        # Instruction 9: Create QImage from numpy array
         new_pixmap_image = QImage(arr_new_image.data, width, height, QImage.Format_ARGB32)
+        current_time = time.perf_counter()
+        print(f"_apply_feature_change - Time for QImage creation from data: {current_time - prev_time:.1f} s")
+        prev_time = current_time
+
+        # Instruction 10: Create QPixmap from QImage
         new_pixmap = QPixmap.fromImage(new_pixmap_image)
+        current_time = time.perf_counter()
+        print(f"_apply_feature_change - Time for QPixmap.fromImage(): {current_time - prev_time:.1f} s")
+        prev_time = current_time
         
         # Update the display
+        # Instruction 11: Update feature_pixmaps dictionary
         self.feature_pixmaps[map_type] = new_pixmap
+        current_time = time.perf_counter()
+        print(f"_apply_feature_change - Time for self.feature_pixmaps assignment: {current_time - prev_time:.1f} s")
+        prev_time = current_time
+
+        # Instruction 12: Set pixmap on item
         self.pixmap_item.setPixmap(new_pixmap)
+        current_time = time.perf_counter()
+        print(f"_apply_feature_change - Time for self.pixmap_item.setPixmap(): {current_time - prev_time:.1f} s")
+        
+        end_time_block = time.perf_counter()
+        print(f"_apply_feature_change - Total time: {end_time_block - start_time_block:.4f} s\n")
 
 
     def undo_last_fill(self) -> None:
