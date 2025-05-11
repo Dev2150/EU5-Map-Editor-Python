@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import QApplication
 from numpy import ndarray
 
 from MapEditor import MapEditor
-from src.auxiliary import hex_to_rgb, resetTimer, get_array_from_image, rgb_to_hex, convert_key_string_to_qt
+from auxiliary import hex_to_rgb, resetTimer, get_array_from_image, rgb_to_hex, convert_key_string_to_qt
 
 PATH_RES = 'res/'
 FILE_IMAGE_LOCATIONS_INPUT = PATH_RES + 'provinces.png'
@@ -45,20 +45,20 @@ feature_data = {
         'isGradient': False,
         'bottom_layout_stretch': 1,
     },
-    'low_wheat': {
-        'display_name': 'Wheat (Low)',
-        'hotkey': ['R', 'F5'],
-        'needs_rgb_conversion': True,
-        'isGradient': True,
-        'bottom_layout_stretch': 1,
-    },
-    'low_tubers': {
-        'display_name': 'Tubers (Low)',
-        'hotkey': ['T', 'F6'],
-        'needs_rgb_conversion': True,
-        'isGradient': True,
-        'bottom_layout_stretch': 1,
-    }
+    # 'low_wheat': {
+    #     'display_name': 'Wheat (Low)',
+    #     'hotkey': ['R', 'F5'],
+    #     'needs_rgb_conversion': True,
+    #     'isGradient': True,
+    #     'bottom_layout_stretch': 1,
+    # },
+    # 'low_tubers': {
+    #     'display_name': 'Tubers (Low)',
+    #     'hotkey': ['T', 'F6'],
+    #     'needs_rgb_conversion': True,
+    #     'isGradient': True,
+    #     'bottom_layout_stretch': 1,
+    # }
 }
 
 labels_suitability = ['Unsuitable', 'Suboptimal', 'Favourable', 'Excellent', 'Exceptional']

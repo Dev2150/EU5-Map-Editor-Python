@@ -1,0 +1,11 @@
+.cursorrules
+res/images_discrete/*
+res/images_raw/*
+other/*
+
+# Ignore JetBrains IDE files
+.idea/
+.iml/
+
+# Ignore Python bytecode files
+__pycache__/
