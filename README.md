@@ -1,57 +1,4 @@
-# Victoria 3 Map Editor
-
-A Python-based map editor for Victoria 3, allowing you to edit province properties using a visual interface.
-
-## Features
-
-- Load provinces from game files
-- Edit province properties visually
-- Save and load projects
-- Multiple map types (climate, topography, etc.)
-- Undo/redo functionality
-
-## Development
-
-### Requirements
-
-- Python 3.6+
-- PyQt5
-- NumPy
-
-### Running the Application
-
-```
-python src/main.py
-```
-
-### Module Details
-
-#### file_parsers.py
-Functions for parsing game files into usable data structures:
-- `parse_states()`: Parses state region definitions
-- `load_province_V3_terrain_types()`: Loads terrain mapping
-- `load_location_mappings()`: Loads feature mappings
-- `load_province_features()`: Loads feature details
-
-#### map_utils.py
-Functions for map generation and manipulation:
-- `construct_map_from_mapping()`: Creates a map from province mappings
-- `generate_numerical_feature_labels()`: Generates labels for numerical features
-
-#### project_utils.py
-Handles project import/export functionality:
-- `apply_imported_changes()`: Applies changes from imported projects
-
-#### constants.py
-Contains centralized constants:
-- Path constants for resources and data files
-- Label definitions
-
-## License
-
-This project is for educational purposes only.
-
-PC Feature Map Editor​
+# Europa Universalis 5 Feature Map Editor​
 
 Goal:
 Speed up the modding of PC's map's terrain features.
@@ -200,6 +147,44 @@ Acknowledgements
 
     Tinto team (Paradox development studio) for working on gems like PC (and Victoria 3).
     Sulphurologist for their works and suggestions on the forum and for helping me find the required map information and the tool to process the maps.
+
+
+## Development
+
+### Requirements
+
+- Python 3.6+
+- PyQt5
+- NumPy
+
+### Running the Application
+
+```
+python src/main.py
+```
+
+### Module Details
+
+#### file_parsers.py
+Functions for parsing game files into usable data structures:
+- `parse_states()`: Parses state region definitions
+- `load_province_V3_terrain_types()`: Loads terrain mapping
+- `load_location_mappings()`: Loads feature mappings
+- `load_province_features()`: Loads feature details
+
+#### map_utils.py
+Functions for map generation and manipulation:
+- `construct_map_from_mapping()`: Creates a map from province mappings
+- `generate_numerical_feature_labels()`: Generates labels for numerical features
+
+#### project_utils.py
+Handles project import/export functionality:
+- `apply_imported_changes()`: Applies changes from imported projects
+
+#### constants.py
+Contains centralized constants:
+- Path constants for resources and data files
+- Label definitions
 
  
 ## Project Structure
