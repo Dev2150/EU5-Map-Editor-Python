@@ -999,7 +999,20 @@ class MapEditor(QMainWindow):
             for key, feature in feature_labels.items():
                 if self.current_map_type == 'climate' and key in ['W']:
                     continue
-                combo.addItem(f"{key} - {feature['desc_short']}", key)
+                
+                # Create a pixmap for the color swatch
+                color_swatch = QPixmap(16, 16)
+                color_rgb = hex_to_rgb(feature['color'])
+                color_swatch.fill(QColor(*color_rgb))
+                
+                # Create an icon from the pixmap
+                icon = QIcon(color_swatch)
+                
+                # Add item with icon, text, and data
+                combo.addItem(icon, f"{key} - {feature['desc_short']}", key)
+            
+            # Set a reasonable row count to make scrolling nicer
+            combo.setMaxVisibleItems(15)
             
             layout.addWidget(combo)
         
