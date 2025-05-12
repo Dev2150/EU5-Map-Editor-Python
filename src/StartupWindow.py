@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QPushButton, QCheckBox, QGroupBox, QLabel
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QPushButton, QCheckBox, QGroupBox, QLabel, QFileDialog, QHBoxLayout
 from PyQt5.QtCore import Qt
 import json
 import os
@@ -17,10 +17,34 @@ class StartupWindow(QDialog):
     def init_ui(self):
         layout = QVBoxLayout()
         
-        # Title
-        title = QLabel("Select Maps to Load")
-        title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
+        # File selector for game directory
+        file_group = QGroupBox("Victoria 3 Game Directory")
+        file_layout = QVBoxLayout()
+        
+        # # Add information label
+        # info_label = QLabel("Select the root folder containing the game directory with this structure:\n"
+        #                    "folder/game/map_data/provinces.png\n"
+        #                    "folder/game/map_data/state_regions/")
+        # info_label.setWordWrap(True)
+        # file_layout.addWidget(info_label)
+        
+        file_layout_row = QHBoxLayout()
+        self.dir_path_label = QLabel(self.settings.get("game_directory", "Not selected"))
+        file_layout_row.addWidget(self.dir_path_label)
+        
+        browse_button = QPushButton("Browse...")
+        browse_button.clicked.connect(self.select_game_directory)
+        file_layout_row.addWidget(browse_button)
+        
+        file_layout.addLayout(file_layout_row)
+        
+        # Add directory validation warning label
+        self.dir_validation_label = QLabel("")
+        self.dir_validation_label.setStyleSheet("color: red;")
+        file_layout.addWidget(self.dir_validation_label)
+        
+        file_group.setLayout(file_layout)
+        layout.addWidget(file_group)
         
         # Create checkboxes for each map type
         group = QGroupBox("Available Maps")
@@ -60,23 +84,10 @@ class StartupWindow(QDialog):
             group_layout.addWidget(spacer)
         
         # Default map selection
-        # default_label = QLabel("Default Map (first map to show):")
-        # default_label.setStyleSheet("font-weight: bold;")
-        # group_layout.addWidget(default_label)
-        
         self.default_map_checkboxes = {}
         for map_type, checkbox in self.checkboxes.items():
             if map_type in self.feature_data:
                 display_name = self.feature_data[map_type]["display_name"]
-                # radio = QCheckBox(f"Start with {display_name}")
-                # self.default_map_checkboxes[map_type] = radio
-                
-                # Set checked state based on saved settings
-                # default_map = self.settings.get("default_map_type", "climate")
-                # radio.setChecked(map_type == default_map)
-                
-                # radio.toggled.connect(lambda checked, mt=map_type: self.on_default_toggled(mt, checked))
-                # group_layout.addWidget(radio)
         
         group.setLayout(group_layout)
         layout.addWidget(group)
@@ -87,8 +98,59 @@ class StartupWindow(QDialog):
         layout.addWidget(start_button)
         
         self.setLayout(layout)
+        
+        # Validate the directory on startup
+        self.validate_game_directory()
+    
+    def select_game_directory(self):
+        dir_path = QFileDialog.getExistingDirectory(
+            self, 
+            "Select Victoria 3 Game Directory", 
+            self.settings.get("game_directory", "")
+        )
+        
+        if dir_path:
+            self.settings["game_directory"] = dir_path
+            self.dir_path_label.setText(dir_path)
+            self.save_settings()
+            self.validate_game_directory()
+    
+    def validate_game_directory(self):
+        """Validate that the directory has the required structure."""
+        dir_path = self.settings.get("game_directory", "")
+        
+        if not dir_path or not os.path.isdir(dir_path):
+            self.dir_validation_label.setText("Please select a valid directory")
+            return False
+        
+        # Check for required structure
+        provinces_path = os.path.join(dir_path, "game", "map_data", "provinces.png")
+        state_regions_path = os.path.join(dir_path, "game", "map_data", "state_regions")
+        
+        errors = []
+        if not os.path.isfile(provinces_path):
+            errors.append("Missing provinces.png file")
+        
+        if not os.path.isdir(state_regions_path):
+            errors.append("Missing state_regions directory")
+        elif not any(os.path.isfile(os.path.join(state_regions_path, f)) for f in os.listdir(state_regions_path)):
+            errors.append("state_regions directory is empty")
+            
+        if errors:
+            self.dir_validation_label.setText("\n".join(errors))
+            return False
+        else:
+            # Store the locations file and state regions paths for later use
+            self.settings["locations_file"] = provinces_path
+            self.settings["state_regions_path"] = state_regions_path
+            self.dir_validation_label.setText("")
+            return True
     
     def validate_and_accept(self):
+        # Validate game directory
+        if not self.validate_game_directory():
+            return
+            
         # Ensure at least one map is selected
         enabled_maps = self.settings.get("enabled_maps", [])
         if not enabled_maps:
@@ -154,9 +216,27 @@ class StartupWindow(QDialog):
                     return json.load(f)
             except:
                 pass
+        
+        # Try to load from template if the main settings file doesn't exist
+        template_file = f"{self.settings_file}.template"
+        if os.path.exists(template_file):
+            try:
+                with open(template_file, 'r') as f:
+                    settings = json.load(f)
+                    # Save the template as the main settings file
+                    with open(self.settings_file, 'w') as out_f:
+                        json.dump(settings, out_f, indent=4)
+                    return settings
+            except:
+                pass
+        
+        # Default settings if neither file exists or can be loaded
         return {
             "default_map_type": "climate",
-            "enabled_maps": ["climate"]
+            "enabled_maps": ["climate"],
+            "game_directory": "",
+            "locations_file": "",
+            "state_regions_path": ""
         }
         
     def load_feature_data(self):

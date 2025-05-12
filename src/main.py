@@ -7,7 +7,7 @@ from os import listdir, path
 
 import numpy as np
 from PyQt5.QtGui import QPixmap, QImage
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QMessageBox
 from numpy import ndarray
 
 from MapEditor import MapEditor
@@ -15,7 +15,7 @@ from StartupWindow import StartupWindow
 from auxiliary import hex_to_rgb, resetTimer, get_array_from_image, rgb_to_hex, convert_key_string_to_qt
 
 PATH_RES = 'res/'
-FILE_IMAGE_LOCATIONS_INPUT = PATH_RES + 'provinces.png'
+# FILE_IMAGE_LOCATIONS_INPUT is now dynamically set from settings
 
 FILE_TXT_TERRAINS = f'{PATH_RES}mappings/province_terrains.txt'
 PATH_LOCATION_MAPPINGS = f'{PATH_RES}mappings/location_'
@@ -182,12 +182,30 @@ if __name__ == "__main__":
     settings = startup_window.get_settings()
     default_map_type = settings.get("default_map_type", "climate")
     enabled_maps = settings.get("enabled_maps", ["climate"])
+    locations_file = settings.get("locations_file", "")
+    state_regions_path = settings.get("state_regions_path", "")
+    
+    # Validate the required paths exist before proceeding
+    missing_paths = []
+    if not locations_file or not path.exists(locations_file):
+        missing_paths.append("Provinces map file")
+    
+    if not state_regions_path or not path.exists(state_regions_path):
+        missing_paths.append("State regions directory")
+    
+    if missing_paths:
+        QMessageBox.critical(
+            None, 
+            "Error", 
+            f"The following required paths were not found:\n- {'\n- '.join(missing_paths)}\n\nPlease restart and select a valid game directory."
+        )
+        sys.exit(1)
 
     start_time = time.time()
 
     # Pre-load all required data
     time_task = resetTimer('Starting state parsing...')
-    dict_locations: dict = parse_states('state_regions')
+    dict_locations: dict = parse_states(state_regions_path)
     print(f"State parsing completed in {time.time() - time_task:.2f} seconds")
 
     # time_task = resetTimer('Loading feature details...')
@@ -222,7 +240,7 @@ if __name__ == "__main__":
     print(f"Feature details and data loaded in {time.time() - time_task:.2f} seconds")
 
     time_task = resetTimer('Getting array from locations image...')
-    arr_original: ndarray = get_array_from_image(FILE_IMAGE_LOCATIONS_INPUT)
+    arr_original: ndarray = get_array_from_image(locations_file)
 
     # Create feature maps
     feature_pixmaps = {}

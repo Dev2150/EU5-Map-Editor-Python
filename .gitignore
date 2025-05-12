@@ -12,3 +12,6 @@ __pycache__/
 
 # Exports
 exports/*
+
+# Other
+editor_settings.json

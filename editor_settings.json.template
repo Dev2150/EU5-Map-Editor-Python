@@ -1,0 +1,10 @@
+{
+    "default_map_type": "climate",
+    "enabled_maps": [
+        "climate"
+    ],
+    "provinces_file": "",
+    "locations_file": "",
+    "game_directory": "",
+    "state_regions_path": ""
+} 
