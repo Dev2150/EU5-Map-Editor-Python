@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QPushButton, QCheckBox, QGroupBox, QLabel, QFileDialog, QHBoxLayout
-from PyQt5.QtWidgets import QProgressDialog, QApplication
+from PyQt5.QtWidgets import QProgressDialog, QApplication, QMessageBox
 from PyQt5.QtCore import Qt
 import json
 import os
@@ -14,6 +14,7 @@ class StartupWindow(QDialog):
         self.settings = self.load_settings()
         self.feature_data = self.load_feature_data()
         self.imported_project = None
+        self.project_map_changes = {}  # Stores changes per map type in imported project
         
         self.init_ui()
         
@@ -168,6 +169,13 @@ class StartupWindow(QDialog):
     def validate_and_accept(self):
         # If a project was imported, we can skip validation
         if self.imported_project:
+            # Check if any required map is unchecked
+            for map_type in self.imported_project["project_data"].get("loaded_maps", []):
+                if map_type in self.checkboxes and not self.checkboxes[map_type].isChecked():
+                    # Filter the undo stack to remove changes for deselected maps
+                    self.filter_undo_stack_for_deselected_maps()
+                    break
+            
             self.accept()
             return
             
@@ -198,6 +206,31 @@ class StartupWindow(QDialog):
         
         self.save_settings()
         self.accept()
+    
+    def filter_undo_stack_for_deselected_maps(self):
+        """Filter the undo stack to remove changes for deselected maps"""
+        if not self.imported_project or "project_data" not in self.imported_project:
+            return
+            
+        project_data = self.imported_project["project_data"]
+        undo_stack = project_data.get("undo_stack", [])
+        if not undo_stack:
+            return
+            
+        # Get currently enabled maps
+        enabled_maps = []
+        for map_type, checkbox in self.checkboxes.items():
+            if checkbox.isChecked():
+                enabled_maps.append(map_type)
+        
+        # Filter the undo stack
+        new_undo_stack = [change for change in undo_stack if change["map_type"] in enabled_maps]
+        
+        # Update the project data
+        if len(new_undo_stack) != len(undo_stack):
+            project_data["undo_stack"] = new_undo_stack
+            # Also update loaded_maps to match enabled maps
+            project_data["loaded_maps"] = enabled_maps
         
     def on_checkbox_toggled(self, map_type, checked):
         enabled_maps = self.settings.get("enabled_maps", [])
@@ -210,6 +243,30 @@ class StartupWindow(QDialog):
                 self.checkboxes[map_type].setChecked(True)
                 self.checkboxes[map_type].blockSignals(False)
             return
+        
+        # Handle deselecting a map that is in the imported project
+        if not checked and self.imported_project and map_type in self.checkboxes:
+            imported_maps = self.imported_project["project_data"].get("loaded_maps", [])
+            if map_type in imported_maps:
+                # Count changes that would be lost
+                changes_to_remove = self.count_changes_for_map_type(map_type)
+                
+                if changes_to_remove > 0:
+                    # Show warning
+                    msg = QMessageBox()
+                    msg.setIcon(QMessageBox.Warning)
+                    msg.setWindowTitle("Warning: Changes Will Be Lost")
+                    msg.setText(f"Deselecting this map will remove {changes_to_remove} changes from the imported project.")
+                    msg.setInformativeText("Do you want to continue?")
+                    msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+                    msg.setDefaultButton(QMessageBox.No)
+                    
+                    if msg.exec_() == QMessageBox.No:
+                        # User canceled, recheck the checkbox
+                        self.checkboxes[map_type].blockSignals(True)
+                        self.checkboxes[map_type].setChecked(True)
+                        self.checkboxes[map_type].blockSignals(False)
+                        return
         
         if checked and map_type not in enabled_maps:
             enabled_maps.append(map_type)
@@ -226,6 +283,14 @@ class StartupWindow(QDialog):
         
         self.settings["enabled_maps"] = enabled_maps
         self.save_settings()
+    
+    def count_changes_for_map_type(self, map_type):
+        """Count how many changes in the undo stack belong to a specific map type"""
+        if not self.imported_project or "project_data" not in self.imported_project:
+            return 0
+            
+        undo_stack = self.imported_project["project_data"].get("undo_stack", [])
+        return sum(1 for change in undo_stack if change["map_type"] == map_type)
     
     def on_default_toggled(self, map_type, checked):
         if checked:
@@ -265,6 +330,18 @@ class StartupWindow(QDialog):
             # Extract the project directory (parent of the file)
             project_dir = os.path.dirname(file_path)
             
+            # Count changes per map type
+            changes_by_map = {}
+            undo_stack = project_data.get("undo_stack", [])
+            for change in undo_stack:
+                map_type = change["map_type"]
+                if map_type not in changes_by_map:
+                    changes_by_map[map_type] = 0
+                changes_by_map[map_type] += 1
+            
+            # Store the changes by map type
+            self.project_map_changes = changes_by_map
+            
             # Store the loaded project
             self.imported_project = {
                 'project_data': project_data,
@@ -282,15 +359,46 @@ class StartupWindow(QDialog):
             if "climate" not in self.settings["enabled_maps"]:
                 self.settings["enabled_maps"].append("climate")
             
+            # Reset all checkbox styles first
+            for map_type, checkbox in self.checkboxes.items():
+                if map_type == 'climate':
+                    checkbox.setStyleSheet("font-weight: bold;")  # Keep climate always bold
+                else:
+                    checkbox.setStyleSheet("")
+            
+            # Update checkboxes to reflect required maps and highlight them
+            for map_type in required_maps:
+                if map_type in self.checkboxes:
+                    self.checkboxes[map_type].setChecked(True)
+                    
+                    # Special style for maps included in the project
+                    if map_type != 'climate':  # Climate already has its own style
+                        change_count = changes_by_map.get(map_type, 0)
+                        
+                        # Style with changes count
+                        self.checkboxes[map_type].setStyleSheet(
+                            "background-color: #e6f7ff; color: #0066cc; font-weight: bold; border: 1px solid #99ccff; padding: 2px;"
+                        )
+                        
+                        # Set tooltip to indicate this map is required by the project
+                        changes_text = f"{change_count} change" if change_count == 1 else f"{change_count} changes"
+                        self.checkboxes[map_type].setToolTip(
+                            f"This map is required by the loaded project ({changes_text})"
+                        )
+            
             # Save settings
             self.save_settings()
             
             # Show success message
-            self.dir_validation_label.setText(f"Project loaded from {file_path}")
-            self.dir_validation_label.setStyleSheet("color: green;")
-            
-            # Automatically accept after successful import
-            self.accept()
+            project_name = os.path.basename(project_dir)
+            map_count = len(required_maps)
+            change_count = len(undo_stack)
+            map_text = "map" if map_count == 1 else "maps"
+            change_text = "change" if change_count == 1 else "changes"
+            self.dir_validation_label.setText(
+                f"Project '{project_name}' loaded with {map_count} {map_text} and {change_count} {change_text}."
+            )
+            self.dir_validation_label.setStyleSheet("color: green; font-weight: bold;")
             
         except Exception as e:
             # Show error message
