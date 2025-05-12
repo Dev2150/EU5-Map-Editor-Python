@@ -1,6 +1,7 @@
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QPushButton, QCheckBox, QGroupBox, QLabel, QFileDialog, QHBoxLayout
 from PyQt5.QtWidgets import QProgressDialog, QApplication, QMessageBox
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QIcon
 import json
 import os
 import pickle
@@ -15,6 +16,11 @@ class StartupWindow(QDialog):
         self.feature_data = self.load_feature_data()
         self.imported_project = None
         self.project_map_changes = {}  # Stores changes per map type in imported project
+        
+        # Set window icon - use absolute path for Windows
+        icon_path = os.path.abspath(os.path.join("res", "icons", "icon.png"))
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
         
         self.init_ui()
         

@@ -26,6 +26,11 @@ class MapEditor(QMainWindow):
                  p_location_to_v3TerrainType: dict, p_feature_data: dict):
         super().__init__()
         
+        # Set window icon - use absolute path for Windows
+        icon_path = os.path.abspath(os.path.join("res", "icons", "icon.png"))
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+        
         # Set the window title here
         self.setWindowTitle("Project Caesar Map Editor")
         

@@ -2,11 +2,12 @@ import re
 import sys
 import time
 import json
+import os
 from ast import literal_eval
 from os import listdir, path
 
 import numpy as np
-from PyQt5.QtGui import QPixmap, QImage
+from PyQt5.QtGui import QPixmap, QImage, QIcon
 from PyQt5.QtWidgets import QApplication, QMessageBox, QDialog, QVBoxLayout, QLabel, QPushButton
 from PyQt5.QtCore import Qt
 from numpy import ndarray
@@ -275,7 +276,19 @@ def apply_imported_changes(map_editor, changes):
 if __name__ == "__main__":
     # try:
     app: QApplication = QApplication(sys.argv)
-
+    
+    # Set application icon - use absolute path for Windows
+    icon_path = os.path.abspath(os.path.join("res", "icons", "icon.png"))
+    if os.path.exists(icon_path):
+        app_icon = QIcon(icon_path)
+        app.setWindowIcon(app_icon)
+        
+        # For Windows, we need to set the app ID to show the custom icon in taskbar
+        if sys.platform == 'win32':
+            import ctypes
+            myappid = 'eu5.mapeditor.v1.0'  # Arbitrary string
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+    
     # Show startup window first
     startup_window = StartupWindow()
     if startup_window.exec_() != StartupWindow.Accepted:
