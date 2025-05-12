@@ -3,7 +3,7 @@ import numpy as np
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QColor, QPixmap, QImage, QIntValidator, QIcon
 from PyQt5.QtWidgets import QVBoxLayout, QLabel, QHBoxLayout, QGraphicsScene, QLineEdit, QWidget, QPushButton, QApplication
-from PyQt5.QtWidgets import QFileDialog, QDialog, QComboBox, QToolBar, QMainWindow, QAction
+from PyQt5.QtWidgets import QFileDialog, QDialog, QComboBox, QToolBar, QMainWindow, QAction, QStatusBar
 from numpy import ndarray
 from datetime import datetime
 import os
@@ -76,6 +76,13 @@ class MapEditor(QMainWindow):
         self.picker_lbl_description = QLabel('Empty')
         # self.picker_lbl_description.setMaximumWidth(200)
         qhb_picker.addWidget(self.picker_lbl_description)
+        
+        # Add undo counter label
+        qhb_picker.addSpacing(20)  # Add space before the counter
+        self.undo_counter_label = QLabel("Changes: 0")
+        self.undo_counter_label.setStyleSheet("font-weight: bold; color: #3366cc;")
+        qhb_picker.addWidget(self.undo_counter_label)
+        
         qhb_picker.addStretch()
 
         # Create main vertical layout
@@ -99,6 +106,12 @@ class MapEditor(QMainWindow):
         self.undo_stack = []
         self.redo_stack = []
         # self.max_undo_steps = 1000000
+        
+        # Track last export state
+        self.last_export_stack_size = 0
+        
+        # Initialize undo counter
+        self.update_undo_counter()
 
     def create_toolbar(self):
         """Create the main toolbar with all map type buttons and actions"""
@@ -511,6 +524,9 @@ class MapEditor(QMainWindow):
                 self.redo_last_fill()
             elif event.key() == Qt.Key_H:
                 self.show_help_dialog()
+            elif event.key() == Qt.Key_Q:
+                # Handle Ctrl+Q for quitting
+                self.close()  # This will trigger closeEvent
         else:
             for feature_type, feature in self.feature_data.items():
                 if 'hotkey' in feature and event.key() in feature['hotkey']:
@@ -646,6 +662,9 @@ class MapEditor(QMainWindow):
         current_time = time.perf_counter()
         print(f"fill_region - Time for _apply_feature_change: {current_time - prev_time:.1f} s")
         prev_time = current_time
+        
+        # Update the undo counter
+        self.update_undo_counter()
 
         end_time_fill_region = time.perf_counter()
         print(f"fill_region - Total time: {end_time_fill_region - start_time_fill_region:.4f} s\n")
@@ -740,6 +759,9 @@ class MapEditor(QMainWindow):
         end_time_block = time.perf_counter()
         print(f"_apply_feature_change - Total time: {end_time_block - start_time_block:.4f} s\n")
 
+    def update_undo_counter(self):
+        """Update the undo counter in the status bar"""
+        self.undo_counter_label.setText(f"Changes: {len(self.undo_stack)}")
 
     def undo_last_fill(self) -> None:
         if not self.undo_stack:
@@ -759,6 +781,13 @@ class MapEditor(QMainWindow):
         # Apply the visual change
         target_color_RGB = hex_to_rgb(change['location_HEX'])
         self._apply_feature_change(map_type, target_color_RGB, old_color)
+        
+        # Update undo counter
+        self.update_undo_counter()
+        
+        # If we've undone all changes, reset the last export stack size
+        if not self.undo_stack and self.last_export_stack_size > 0:
+            self.last_export_stack_size = 0
 
     def redo_last_fill(self) -> None:
         if not self.redo_stack:
@@ -778,6 +807,9 @@ class MapEditor(QMainWindow):
         # Apply the visual change
         target_color_RGB = hex_to_rgb(change['location_HEX'])
         self._apply_feature_change(map_type, target_color_RGB, new_color)
+        
+        # Update undo counter
+        self.update_undo_counter()
 
     def export_changes(self):
         """Export modified locations to a timestamped folder"""
@@ -803,6 +835,9 @@ class MapEditor(QMainWindow):
                     if column in location_data:
                         f.write(f"{hex_code},{location_data[column]}\n")
             print(f"Exported {column} data to {export_path}")
+
+        # Update last export state
+        self.last_export_stack_size = len(self.undo_stack)
 
         # Show success message
         dialog = QDialog(self)
@@ -970,6 +1005,7 @@ class MapEditor(QMainWindow):
         General:
         - Ctrl+H: Show this help dialog
         - Ctrl+S: Save/Export changes
+        - Ctrl+Q: Quit application
         - Ctrl+B: Open feature selector
         - Ctrl+C: Copy feature from current location
         - Ctrl+V: Paste feature at cursor location
@@ -1001,3 +1037,29 @@ class MapEditor(QMainWindow):
         
         dialog.setLayout(layout)
         dialog.exec_()
+
+    def closeEvent(self, event):
+        """Handle window close event and prompt for unsaved changes"""
+        if len(self.undo_stack) > self.last_export_stack_size:
+            # There are unsaved changes
+            from PyQt5.QtWidgets import QMessageBox
+            reply = QMessageBox.question(
+                self, 'Unsaved Changes',
+                'You have unsaved changes. Do you want to export before quitting?',
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+                QMessageBox.Yes
+            )
+            
+            if reply == QMessageBox.Yes:
+                # Export changes then close
+                self.export_changes()
+                event.accept()
+            elif reply == QMessageBox.No:
+                # Close without exporting
+                event.accept()
+            else:
+                # Cancel closing
+                event.ignore()
+        else:
+            # No unsaved changes, close normally
+            event.accept()
