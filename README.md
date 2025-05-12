@@ -1,7 +1,60 @@
+# Victoria 3 Map Editor
+
+A Python-based map editor for Victoria 3, allowing you to edit province properties using a visual interface.
+
+## Features
+
+- Load provinces from game files
+- Edit province properties visually
+- Save and load projects
+- Multiple map types (climate, topography, etc.)
+- Undo/redo functionality
+
+## Development
+
+### Requirements
+
+- Python 3.6+
+- PyQt5
+- NumPy
+
+### Running the Application
+
+```
+python src/main.py
+```
+
+### Module Details
+
+#### file_parsers.py
+Functions for parsing game files into usable data structures:
+- `parse_states()`: Parses state region definitions
+- `load_province_V3_terrain_types()`: Loads terrain mapping
+- `load_location_mappings()`: Loads feature mappings
+- `load_province_features()`: Loads feature details
+
+#### map_utils.py
+Functions for map generation and manipulation:
+- `construct_map_from_mapping()`: Creates a map from province mappings
+- `generate_numerical_feature_labels()`: Generates labels for numerical features
+
+#### project_utils.py
+Handles project import/export functionality:
+- `apply_imported_changes()`: Applies changes from imported projects
+
+#### constants.py
+Contains centralized constants:
+- Path constants for resources and data files
+- Label definitions
+
+## License
+
+This project is for educational purposes only.
+
 PC Feature Map Editor​
 
 Goal:
-Speed up the modding of PC’s map’s terrain features.
+Speed up the modding of PC's map's terrain features.
 It also provides maps for *climate*, vegetation, topography, etc. to get started modding a more accurate world
 
 Features:
@@ -50,13 +103,13 @@ Methodology
 Mock-up
 image14.png
 
-In the first iteration, I have used as mock-up data for the location file Victoria 3’s provinces.png image, so that the rest of the functionality can be prepared.
+In the first iteration, I have used as mock-up data for the location file Victoria 3's provinces.png image, so that the rest of the functionality can be prepared.
 Base
 
     Imported the location file, where each province/location is represented by a contiguous region having a unique color hex
-    Extracted the location names from ‘state_regions’ folder and associated each hex color with the corresponding name.
+    Extracted the location names from 'state_regions' folder and associated each hex color with the corresponding name.
     The information the map editor uses is in the form of text files, as Pavia stated that PC will be using the same (for loading efficiency).
-    For every map feature the editor has (e.g. Vic3 terrain type, Köppen climate, topography, vegetation, etc.), I have used/created a map having the same shape and projection as the location file, then created a Python script that finds the dominant feature in every location (colored patch; via pixel counting; taking ~1h for each type), all so that the mapping text file is created, representing a list of mappings in the format ‘#HEX=FeatureLabel’ (basically also outputting a recoloring of the locations file)
+    For every map feature the editor has (e.g. Vic3 terrain type, Köppen climate, topography, vegetation, etc.), I have used/created a map having the same shape and projection as the location file, then created a Python script that finds the dominant feature in every location (colored patch; via pixel counting; taking ~1h for each type), all so that the mapping text file is created, representing a list of mappings in the format '#HEX=FeatureLabel' (basically also outputting a recoloring of the locations file)
 
 image15.png
 
@@ -79,7 +132,7 @@ Vanilla: Climate.png
 Topography
 
 DEM (Digital Elevation Model)
-The geotiff (map) is ‘World_ELE_GISdata_GlobalSolarAtlas-v2_GEOTIFF’ from link
+The geotiff (map) is 'World_ELE_GISdata_GlobalSolarAtlas-v2_GEOTIFF' from link
 image17.png
 
 
@@ -89,7 +142,7 @@ image6.png
 The geotiff (map) is from link.
 
 
-I have taken inspiration from one of the posts from Sulphurologist from the Paradox Plaza forum, where they’ve proposed to combine DEM with TRI and have suggested a table of topography labels for different combinations of labels from the two maps.
+I have taken inspiration from one of the posts from Sulphurologist from the Paradox Plaza forum, where they've proposed to combine DEM with TRI and have suggested a table of topography labels for different combinations of labels from the two maps.
 image10.png
 
 The two maps do not overlap, and since it is necessary, I have created an intersection of them and the result has missing information in areas like the extreme northern hemisphere (North of N America & Russia)
@@ -149,3 +202,28 @@ Acknowledgements
     Sulphurologist for their works and suggestions on the forum and for helping me find the required map information and the tool to process the maps.
 
  
+## Project Structure
+
+The project has been modularized for better organization and maintainability:
+
+### Core Modules
+
+- **main.py**: Entry point of the application, orchestrates initialization and startup
+- **MapEditor.py**: Main editor window and interface
+- **StartupWindow.py**: Initial configuration window
+- **CustomGraphicsView.py**: Custom map view implementation
+
+### Utility Modules
+
+- **auxiliary.py**: General utility functions for the application
+- **constants.py**: Constant values and paths used throughout the application
+- **config.py**: Configuration values and settings
+- **ui_utils.py**: UI-related utility functions for creating dialogs and messages
+- **settings_manager.py**: Management of application settings
+- **map_editor_utils.py**: Map editor-specific utility functions
+
+### Specialized Modules
+
+- **file_parsers.py**: Functions to parse game and data files
+- **map_utils.py**: Functions for working with map data and creating maps
+- **project_manager.py**: Project management functionality including import/export
