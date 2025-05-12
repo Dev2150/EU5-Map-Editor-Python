@@ -81,7 +81,7 @@ class MapEditor(QWidget):
         # Add undo/redo stacks
         self.undo_stack = []
         self.redo_stack = []
-        self.max_undo_steps = 50
+        # self.max_undo_steps = 1000000
 
     def create_legend_layout(self):
         # Create legend box with fixed height
@@ -158,6 +158,16 @@ class MapEditor(QWidget):
             button.clicked.connect(lambda checked, f=feature: self.set_map_type(f))
             self.feature_data[feature]['button'] = button
             hbl_buttons.addWidget(button)
+        
+        # Add save and help buttons
+        save_button = QPushButton("Save")
+        save_button.setFixedWidth(80)
+        save_button.clicked.connect(self.export_changes)
+        help_button = QPushButton("Help")
+        help_button.setFixedWidth(80)
+        help_button.clicked.connect(self.show_help_dialog)
+        hbl_buttons.addWidget(save_button)
+        hbl_buttons.addWidget(help_button)
         hbl_buttons.addStretch()
         return hbl_buttons
 
@@ -461,8 +471,8 @@ class MapEditor(QWidget):
         prev_time = current_time
 
         # Instruction 9 & 10: Manage undo_stack size
-        if len(self.undo_stack) > self.max_undo_steps:
-            self.undo_stack.pop(0)
+        # if len(self.undo_stack) > self.max_undo_steps:
+        #    self.undo_stack.pop(0)
         current_time = time.perf_counter()
         print(f"fill_region - Time for undo_stack size management: {current_time - prev_time:.1f} s")
         prev_time = current_time
@@ -627,25 +637,34 @@ class MapEditor(QWidget):
         export_dir = os.path.join('exports', timestamp)
         os.makedirs(export_dir, exist_ok=True)
 
-        # Collect modified locations
-        modified_locations = {}
-        for hex_color, location_data in self.locations.items():
-            # Check if any feature has been modified by comparing with undo stack
-            is_modified = any(
-                change['location_HEX'] == hex_color 
-                for change in self.undo_stack
-            )
-            if is_modified:
-                modified_locations[hex_color] = location_data
+        # Get all columns except name, x, y
+        excluded_columns = {'name', 'x', 'y'}
+        columns_to_export = set()
+        
+        # Find all unique columns across all locations
+        for location_data in self.locations.values():
+            columns_to_export.update(key for key in location_data.keys() if key not in excluded_columns)
 
-        # Export to JSON file
-        if not modified_locations:
-            QApplication.beep()  # Play error sound
-            return;
+        # Export each column to a separate file
+        for column in columns_to_export:
+            export_path = os.path.join(export_dir, f'{column}.csv')
+            with open(export_path, 'w', encoding='utf-8') as f:
+                for hex_code, location_data in self.locations.items():
+                    if column in location_data:
+                        f.write(f"{hex_code},{location_data[column]}\n")
+            print(f"Exported {column} data to {export_path}")
 
-        export_path = os.path.join(export_dir, 'modified_locations.json')
-        with open(export_path, 'w', encoding='utf-8') as f:
-            json.dump(modified_locations, f, indent=2)
+        # Show success message
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Export Successful")
+        layout = QVBoxLayout()
+        label = QLabel(f"Successfully exported data to {export_dir}")
+        layout.addWidget(label)
+        ok_button = QPushButton("OK")
+        ok_button.clicked.connect(dialog.accept)
+        layout.addWidget(ok_button)
+        dialog.setLayout(layout)
+        dialog.exec_()
 
     def show_feature_selector(self):
         """Shows a dialog with a dropdown of all features for the current map type"""
@@ -769,3 +788,48 @@ class MapEditor(QWidget):
                 self.picker_lbl_map_type_display.setText(f"{feature_data_current['display_name']} - ")
 
                 combo.setFocus()
+
+    def show_help_dialog(self):
+        """Shows a dialog with hotkey information"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Hotkeys Help")
+        dialog.setMinimumWidth(400)
+        
+        layout = QVBoxLayout()
+        
+        # Create text with hotkey information
+        help_text = """
+        Hotkeys:
+        
+        General:
+        - Ctrl+S: Save/Export changes
+        - Ctrl+B: Open feature selector
+        - Ctrl+C: Copy feature from current location
+        - Ctrl+V: Paste feature at cursor location
+        - Ctrl+Z: Undo last change
+        - Ctrl+Y: Redo last change
+        - F: Open search box
+        - ESC: Close search box
+        
+        Map Type Selection:
+        - Climate hotkey: Switch to climate map
+        - Topography hotkey: Switch to topography map
+        - Vegetation hotkey: Switch to vegetation map
+        
+        Mouse:
+        - Left click: View location info
+        - Left click + drag: Pan view
+        - Mouse wheel: Zoom in/out
+        """
+        
+        text_label = QLabel(help_text)
+        text_label.setWordWrap(True)
+        layout.addWidget(text_label)
+        
+        # Add close button
+        close_button = QPushButton("Close")
+        close_button.clicked.connect(dialog.accept)
+        layout.addWidget(close_button)
+        
+        dialog.setLayout(layout)
+        dialog.exec_()

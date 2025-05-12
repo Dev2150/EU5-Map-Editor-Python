@@ -3,9 +3,12 @@ res/images_discrete/*
 res/images_raw/*
 other/*
 
-# Ignore JetBrains IDE files
+# JetBrains IDE files
 .idea/
 .iml/
 
-# Ignore Python bytecode files
+# Python bytecode files
 __pycache__/
+
+# Exports
+exports/*
