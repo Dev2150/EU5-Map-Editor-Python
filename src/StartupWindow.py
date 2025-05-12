@@ -286,6 +286,11 @@ class StartupWindow(QDialog):
                     self.default_map_checkboxes[enabled_maps[0]].setChecked(True)
                 else:
                     self.settings["default_map_type"] = ""
+            
+            # Reset tooltip and style for unchecked maps
+            if map_type in self.checkboxes and map_type != 'climate':
+                self.checkboxes[map_type].setToolTip("")
+                self.checkboxes[map_type].setStyleSheet("")
         
         self.settings["enabled_maps"] = enabled_maps
         self.save_settings()
@@ -329,6 +334,10 @@ class StartupWindow(QDialog):
             return
         
         try:
+            # Reset previous project data
+            self.imported_project = None
+            self.project_map_changes = {}
+            
             # Load the project data
             with open(file_path, 'r', encoding='utf-8') as f:
                 project_data = json.load(f)
@@ -356,21 +365,28 @@ class StartupWindow(QDialog):
             
             # Ensure required maps are enabled in settings
             required_maps = set(project_data.get('loaded_maps', ['climate']))
-            enabled_maps = set(self.settings.get("enabled_maps", ["climate"]))
             
-            # Update enabled maps to include all required by the project
-            self.settings["enabled_maps"] = list(enabled_maps.union(required_maps))
+            # Update the settings to include ONLY the maps required by the project (and climate)
+            self.settings["enabled_maps"] = list(required_maps)
             
             # If climate not in enabled maps, add it
             if "climate" not in self.settings["enabled_maps"]:
                 self.settings["enabled_maps"].append("climate")
             
-            # Reset all checkbox styles first
+            # Reset all checkbox styles first and uncheck all checkboxes
             for map_type, checkbox in self.checkboxes.items():
+                # Uncheck all checkboxes first
+                checkbox.blockSignals(True)
+                checkbox.setChecked(False)
+                checkbox.blockSignals(False)
+                
+                # Reset styles and tooltips
                 if map_type == 'climate':
                     checkbox.setStyleSheet("font-weight: bold;")  # Keep climate always bold
+                    checkbox.setToolTip("Climate map is required and cannot be deselected")
                 else:
                     checkbox.setStyleSheet("")
+                    checkbox.setToolTip("")
             
             # Update checkboxes to reflect required maps and highlight them
             for map_type in required_maps:
@@ -394,6 +410,16 @@ class StartupWindow(QDialog):
             
             # Save settings
             self.save_settings()
+            
+            # Set default map type to the first map from the project
+            if required_maps:
+                # Convert to list to ensure order, prioritize climate if available
+                required_maps_list = list(required_maps)
+                if "climate" in required_maps_list:
+                    self.settings["default_map_type"] = "climate"
+                else:
+                    self.settings["default_map_type"] = required_maps_list[0]
+                self.save_settings()
             
             # Show success message
             project_name = os.path.basename(project_dir)

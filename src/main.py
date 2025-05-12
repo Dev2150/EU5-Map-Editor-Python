@@ -90,6 +90,12 @@ def load_province_V3_terrain_types(filepath: str) -> dict:
 
 
 def load_location_mappings(filepath: str, featureName: str):
+    """Loads mappings from a CSV file and adds them to dict_locations.
+    
+    Args:
+        filepath: Path to the CSV file with color,feature mappings
+        featureName: The feature type to add to locations dictionary
+    """
     global dict_locations
     with open(filepath, 'r', encoding='UTF-8-sig') as f:
         lines: list[str] = [line.strip() for line in f if ',' in line]
@@ -335,21 +341,26 @@ if __name__ == "__main__":
 
     time_task = resetTimer('Loading feature details and data...')
     for feature_type, config in feature_data.items():
+        # Only load feature mappings for enabled maps
+        if feature_type in enabled_maps:
+            isNumerical = config['isNumerical']
+            filePath = config['file_details'] if 'file_details' in config else f'{PATH_LOCATION_MAPPINGS}{feature_type}.csv'
+            load_location_mappings(filePath, feature_type)
 
-        isNumerical = config['isNumerical']
-        filePath = config['file_details'] if 'file_details' in config else f'{PATH_LOCATION_MAPPINGS}{feature_type}.csv'
-        load_location_mappings(filePath, feature_type)
-
-        if not isNumerical:
-            filePath = config['file_data'] if 'file_data' in config else f'{PATH_FEATURE_DETAILS}{feature_type}.csv'
-            feature_data[feature_type]['labels'] = load_province_features(filePath)
+            if not isNumerical:
+                filePath = config['file_data'] if 'file_data' in config else f'{PATH_FEATURE_DETAILS}{feature_type}.csv'
+                feature_data[feature_type]['labels'] = load_province_features(filePath)
+            else:
+                feature_data[feature_type]['labels'] = {}
+                labels_suitability_len = len(labels_suitability)
+                for i in range(256):
+                    desc_long = labels_suitability[min(labels_suitability_len - 1, int(i / (256 / labels_suitability_len)))]
+                    feature_data[feature_type]['labels'][str(i)] = {'color': rgb_to_hex(*(i, i, i)), 'desc_short': i,
+                                                                   'desc_long': desc_long}
         else:
+            # For disabled maps, initialize empty labels to avoid errors
             feature_data[feature_type]['labels'] = {}
-            labels_suitability_len = len(labels_suitability)
-            for i in range(256):
-                desc_long = labels_suitability[min(labels_suitability_len - 1, int(i / (256 / labels_suitability_len)))]
-                feature_data[feature_type]['labels'][str(i)] = {'color': rgb_to_hex(*(i, i, i)), 'desc_short': i,
-                                                                'desc_long': desc_long}
+            print(f"Skipping feature data loading for {feature_type} (not enabled)")
 
     print(f"Feature details and data loaded in {time.time() - time_task:.2f} seconds")
 

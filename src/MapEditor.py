@@ -4,6 +4,7 @@ from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QColor, QPixmap, QImage, QIntValidator, QIcon
 from PyQt5.QtWidgets import QVBoxLayout, QLabel, QHBoxLayout, QGraphicsScene, QLineEdit, QWidget, QPushButton, QApplication
 from PyQt5.QtWidgets import QFileDialog, QDialog, QComboBox, QToolBar, QMainWindow, QAction, QStatusBar, QProgressDialog
+from PyQt5.QtWidgets import QScrollArea, QFrame
 from numpy import ndarray
 from datetime import datetime
 import os
@@ -12,6 +13,7 @@ import json
 import pickle
 import sys
 import subprocess
+from PyQt5.QtWidgets import QSizePolicy
 
 from CustomGraphicsView import CustomGraphicsView
 from auxiliary import rgb_to_hex, hex_to_rgb, create_legend_item, convert_key_string_to_qt
@@ -43,7 +45,7 @@ class MapEditor(QMainWindow):
         self.feature_data = p_feature_data
 
         # Try to load icon directory from settings
-        self.icon_directory = os.path.join("src", "icons", "feather")
+        self.icon_directory = os.path.join("res", "icons", "feather")
         try:
             if os.path.exists("editor_settings.json"):
                 with open("editor_settings.json", "r") as f:
@@ -174,46 +176,64 @@ class MapEditor(QMainWindow):
         map_type_toolbar.setWindowTitle("Map Types")
         map_type_toolbar.setMovable(False)
         map_type_toolbar.setFloatable(False)
-        map_type_toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         
-        # Add a label at the start of the toolbar to identify it
+        # Create a scrollable container for map type buttons
+        map_type_container = QWidget()
+        map_type_layout = QHBoxLayout(map_type_container)
+        map_type_layout.setContentsMargins(0, 0, 0, 0)
+        map_type_layout.setSpacing(2)
+        
+        # Add a label at the start of the layout to identify it
         map_type_label = QLabel("Map Types: ")
         map_type_label.setStyleSheet("font-weight: bold; margin-right: 10px;")
-        map_type_toolbar.addWidget(map_type_label)
+        map_type_layout.addWidget(map_type_label)
+        
+        # Create buttons for each map type
+        for feature in self.feature_data:
+            hotkeyVar = self.feature_data[feature]['hotkey']
+            hotkey = hotkeyVar[0] if isinstance(hotkeyVar, list) else hotkeyVar
+            
+            button = QPushButton(f"{self.feature_data[feature]['display_name']} ({chr(hotkey)})")
+            button.setCheckable(True)  # Make buttons checkable
+            button.setProperty("feature", feature)  # Store feature name as property
+            button.clicked.connect(lambda checked, f=feature: self.set_map_type(f))
+            button.setStyleSheet(inactive_style)  # Set initial style
+            button.setMinimumWidth(80)  # Ensure buttons have reasonable width
+                        
+            # Disable buttons for maps that aren't loaded
+            if feature not in self.feature_pixmaps:
+                button.setEnabled(False)
+                button.setToolTip("This map was not loaded. Select it in the startup window to enable.")
+                button.setStyleSheet("background-color: #f0f0f0; color: #a0a0a0; border: 1px solid #d0d0d0;")
+            
+            self.feature_data[feature]['button'] = button
+            map_type_layout.addWidget(button)
+        
+        # Add stretch to push buttons to the left
+        map_type_layout.addStretch()
+        
+        # Create scroll area and add the container to it
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QFrame.NoFrame)  # Remove the border
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setWidget(map_type_container)
+        scroll_area.setMinimumWidth(300)  # Set a minimum width to ensure at least a few buttons are visible
+        scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        scroll_area.setMaximumHeight(40)  # Limit the height to prevent it from taking too much vertical space
+        
+        # Add the scroll area to the toolbar
+        action = map_type_toolbar.addWidget(scroll_area)
+        # Make the widget take up all available width
+        action.setVisible(True)
         
         # Add toolbar below the tools toolbar
         self.addToolBarBreak(Qt.TopToolBarArea)
         self.addToolBar(Qt.TopToolBarArea, map_type_toolbar)
         
-        # Add map type buttons to toolbar
-        for feature in self.feature_data:
-            hotkeyVar = self.feature_data[feature]['hotkey']
-            hotkey = hotkeyVar[0] if isinstance(hotkeyVar, list) else hotkeyVar
-            
-            action = QAction(f"{self.feature_data[feature]['display_name']} ({chr(hotkey)})", self)
-            action.setData(feature)
-            action.setCheckable(True)  # Make actions checkable so they can have a checked state
-            action.triggered.connect(lambda checked, f=feature: self.set_map_type(f))
-            
-            # Set a color indicator icon if available
-            if feature in self.feature_pixmaps:
-                # Try to use a representative icon or a colored square
-                icon_path = os.path.join(self.icon_directory, f"{feature}.svg")
-                if os.path.exists(icon_path):
-                    action.setIcon(QIcon(icon_path))
-                else:
-                    # Create a simple colored square icon
-                    pixmap = QPixmap(16, 16)
-                    pixmap.fill(QColor(200, 200, 200))  # Default gray
-                    action.setIcon(QIcon(pixmap))
-            
-            # Disable actions for maps that aren't loaded
-            if feature not in self.feature_pixmaps:
-                action.setEnabled(False)
-                action.setToolTip("This map was not loaded. Select it in the startup window to enable.")
-            
-            self.feature_data[feature]['action'] = action
-            map_type_toolbar.addAction(action)
+        # Store map type toolbar for later access
+        self.map_type_toolbar = map_type_toolbar
 
     def create_action(self, text, icon_name, tooltip, callback):
         """Helper method to create a QAction with icon (if exists) or text fallback"""
@@ -261,7 +281,22 @@ class MapEditor(QMainWindow):
         """Copy the current feature from the hovered province"""
         self.is_picker_active = True
         try:
+            # Check if the feature type exists for this location
+            if self.current_map_type not in self.locations[self.original_color_HEX]:
+                self.picker_lbl_pixmap.clear()
+                self.picker_lbl_map_type_display.clear()
+                self.picker_lbl_description.setText(f'Feature {self.current_map_type} not available for this province')
+                return
+                
             feature_key = self.locations[self.original_color_HEX][self.current_map_type]
+            
+            # Check if the feature key exists in the feature data
+            if feature_key not in self.feature_data[self.current_map_type]['labels']:
+                self.picker_lbl_pixmap.clear()
+                self.picker_lbl_map_type_display.clear()
+                self.picker_lbl_description.setText(f'Feature key {feature_key} not found in {self.current_map_type} data')
+                return
+                
             feature_current = self.feature_data[self.current_map_type]['labels'][feature_key]
             color_HEX = feature_current['color']
             color_RGB = hex_to_rgb(color_HEX)
@@ -276,7 +311,7 @@ class MapEditor(QMainWindow):
         except Exception as e:
             self.picker_lbl_pixmap.clear()
             self.picker_lbl_map_type_display.clear()
-            self.picker_lbl_description.setText('Invalid')
+            self.picker_lbl_description.setText(f'Error: {str(e)}')
 
     def paste_feature(self):
         """Paste the copied feature to the province under the cursor"""
@@ -410,7 +445,23 @@ class MapEditor(QMainWindow):
             else:
                 for feature_type, feature in self.feature_data.items():
                     feature_display_current = self.feature_displays[feature_type]
+                    
+                    # Skip if this feature type doesn't exist for this location or isn't loaded
+                    if feature_type not in self.locations[self.original_color_HEX] or feature_type not in self.feature_pixmaps:
+                        feature_display_current['lbl_pixmap'].clear()
+                        feature_display_current['desc_short'].setText('')
+                        feature_display_current['desc_long'].setText('')
+                        continue
+                        
                     feature_key = self.locations[self.original_color_HEX][feature_type]
+                    
+                    # Skip if the feature key doesn't exist in labels
+                    if feature_key not in self.feature_data[feature_type]['labels']:
+                        feature_display_current['lbl_pixmap'].clear()
+                        feature_display_current['desc_short'].setText(f"{feature['display_name']} - Not available")
+                        feature_display_current['desc_long'].setText('')
+                        continue
+                        
                     feature_current = self.feature_data[feature_type]['labels'][feature_key]
                     pixmap_current = feature_display_current['pixmap']
                     color_HEX = feature_current['color']
@@ -430,30 +481,29 @@ class MapEditor(QMainWindow):
         self.lbl_province_climate.setText(f"Climate (Victoria 3): {climate_V3}")
 
     def set_map_type(self, active_map: str):
+        """Set the active map layer and update the UI accordingly"""
+        # Only proceed if the map is actually changing
         if self.current_map_type == active_map:
             return
             
+        # Check if the map is available
         if active_map not in self.feature_pixmaps:
             print(f"Warning: Map type '{active_map}' not loaded")
             return
 
+        # Update the map display
         self.pixmap_item.setPixmap(self.feature_pixmaps[active_map])
 
-        for feature in self.feature_data:
-            is_active = active_map == feature
-            is_available = feature in self.feature_pixmaps
-            
-            if 'action' in self.feature_data[feature]:
-                # For actions, we need to use font weight in the text instead of stylesheet
-                # or just make it checked to show as active
-                self.feature_data[feature]['action'].setChecked(is_active)
-            
-            if is_available and 'button' in self.feature_data[feature]:
-                self.feature_data[feature]['button'].setStyleSheet(active_style if is_active else inactive_style)
-            elif 'button' in self.feature_data[feature]:
-                # Disable buttons for maps that aren't loaded
-                self.feature_data[feature]['button'].setStyleSheet("background-color: #cccccc; color: #888888;")
-                self.feature_data[feature]['button'].setEnabled(False)
+        # Update button states
+        for feature_type, feature in self.feature_data.items():
+            if 'button' in feature:
+                # Skip updating styles for disabled buttons
+                if feature_type not in self.feature_pixmaps:
+                    continue
+                
+                is_active = feature_type == active_map
+                feature['button'].setChecked(is_active)
+                feature['button'].setStyleSheet(active_style if is_active else inactive_style)
 
         self.current_map_type = active_map
         self.update_legend(active_map)
