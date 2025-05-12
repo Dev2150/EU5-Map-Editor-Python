@@ -1,9 +1,9 @@
 # (arr_locations, modified_pixmap, dict_locations, location_to_v3TerrainType, location_to_koppen, koppen_details)
 import numpy as np
 from PyQt5.QtCore import QTimer, Qt
-from PyQt5.QtGui import QColor, QPixmap, QImage, QIntValidator
+from PyQt5.QtGui import QColor, QPixmap, QImage, QIntValidator, QIcon
 from PyQt5.QtWidgets import QVBoxLayout, QLabel, QHBoxLayout, QGraphicsScene, QLineEdit, QWidget, QPushButton, QApplication
-from PyQt5.QtWidgets import QFileDialog, QDialog, QComboBox
+from PyQt5.QtWidgets import QFileDialog, QDialog, QComboBox, QToolBar, QMainWindow, QAction
 from numpy import ndarray
 from datetime import datetime
 import os
@@ -18,7 +18,7 @@ from config import UNKNOWN_REGION, active_style, inactive_style
 
 MAP_TYPE_BUTTON_WIDTH = 100
 
-class MapEditor(QWidget):
+class MapEditor(QMainWindow):
     def __init__(self, p_arr_locations: ndarray, p_feature_pixmaps: dict, p_locations: dict,
                  p_location_to_v3TerrainType: dict, p_feature_data: dict):
         super().__init__()
@@ -34,15 +34,32 @@ class MapEditor(QWidget):
         self.location_to_v3TerrainType = p_location_to_v3TerrainType
         self.feature_data = p_feature_data
 
+        # Try to load icon directory from settings
+        self.icon_directory = os.path.join("src", "icons", "feather")
+        try:
+            if os.path.exists("editor_settings.json"):
+                with open("editor_settings.json", "r") as f:
+                    settings = json.load(f)
+                    if "icon_directory" in settings:
+                        custom_icon_dir = settings["icon_directory"]
+                        if os.path.exists(custom_icon_dir):
+                            self.icon_directory = custom_icon_dir
+                            print(f"Using custom icon directory: {self.icon_directory}")
+        except Exception as e:
+            print(f"Error loading custom icon directory: {e}")
+
+        # Create central widget
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+
         # Setup GUI
         self.scene = QGraphicsScene()
         self.view = CustomGraphicsView(self.scene, self)
 
         bottom_layout = self.create_bottom_GUI()
 
-
-        # Create map type buttons
-        hbl_buttons = self.create_map_type_buttons()
+        # Create toolbar
+        self.create_toolbar()
 
         self.create_legend_layout()
 
@@ -63,12 +80,11 @@ class MapEditor(QWidget):
 
         # Create main vertical layout
         main_layout = QVBoxLayout()
-        main_layout.addLayout(hbl_buttons)
         main_layout.addWidget(self.legend_container)
         main_layout.addLayout(qhb_picker)
         main_layout.addWidget(self.view)
         main_layout.addLayout(bottom_layout)
-        self.setLayout(main_layout)
+        central_widget.setLayout(main_layout)
 
         # Initialize button states and legend
         self.set_map_type('climate')  # Default to climate, but this will be overridden by main.py
@@ -84,6 +100,188 @@ class MapEditor(QWidget):
         self.redo_stack = []
         # self.max_undo_steps = 1000000
 
+    def create_toolbar(self):
+        """Create the main toolbar with all map type buttons and actions"""
+        # Create tools toolbar (top row)
+        toolbar = QToolBar("Tools")
+        toolbar.setWindowTitle("Tools")
+        toolbar.setMovable(False)
+        toolbar.setFloatable(False)
+        toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        
+        # Add a label at the start of the toolbar to identify it
+        tools_label = QLabel("Tools: ")
+        tools_label.setStyleSheet("font-weight: bold; margin-right: 10px;")
+        toolbar.addWidget(tools_label)
+        
+        # Add tools toolbar at the top
+        self.addToolBar(Qt.TopToolBarArea, toolbar)
+        
+        # Add undo/redo actions
+        
+        undo_action = self.create_action("Undo", "undo", "Undo last change (Ctrl+Z)", self.undo_last_fill)
+        toolbar.addAction(undo_action)
+        
+        redo_action = self.create_action("Redo", "redo", "Redo last change (Ctrl+Y)", self.redo_last_fill)
+        toolbar.addAction(redo_action)
+        
+        toolbar.addSeparator()
+        
+        # Add feature selector action
+        selector_action = self.create_action("Feature Selector", "feature-selector", 
+                                           "Select a feature (Ctrl+B)", self.show_feature_selector)
+        toolbar.addAction(selector_action)
+
+        # Add search action
+        search_action = self.create_action("Search", "search", "Search for province (F)", self.show_search)
+        toolbar.addAction(search_action)
+
+        # Add save and help actions
+        toolbar.addSeparator()
+        
+        save_action = self.create_action("Save", "save", "Save/Export changes (Ctrl+S)", self.export_changes)
+        toolbar.addAction(save_action)
+        
+        help_action = self.create_action("Help", "help", "Show help dialog (Ctrl+H)", self.show_help_dialog)
+        toolbar.addAction(help_action)
+        
+        # Create map type toolbar (bottom row)
+        map_type_toolbar = QToolBar("Map Types")
+        map_type_toolbar.setWindowTitle("Map Types")
+        map_type_toolbar.setMovable(False)
+        map_type_toolbar.setFloatable(False)
+        map_type_toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        
+        # Add a label at the start of the toolbar to identify it
+        map_type_label = QLabel("Map Types: ")
+        map_type_label.setStyleSheet("font-weight: bold; margin-right: 10px;")
+        map_type_toolbar.addWidget(map_type_label)
+        
+        # Add toolbar below the tools toolbar
+        self.addToolBarBreak(Qt.TopToolBarArea)
+        self.addToolBar(Qt.TopToolBarArea, map_type_toolbar)
+        
+        # Add map type buttons to toolbar
+        for feature in self.feature_data:
+            hotkeyVar = self.feature_data[feature]['hotkey']
+            hotkey = hotkeyVar[0] if isinstance(hotkeyVar, list) else hotkeyVar
+            
+            action = QAction(f"{self.feature_data[feature]['display_name']} ({chr(hotkey)})", self)
+            action.setData(feature)
+            action.setCheckable(True)  # Make actions checkable so they can have a checked state
+            action.triggered.connect(lambda checked, f=feature: self.set_map_type(f))
+            
+            # Set a color indicator icon if available
+            if feature in self.feature_pixmaps:
+                # Try to use a representative icon or a colored square
+                icon_path = os.path.join(self.icon_directory, f"{feature}.svg")
+                if os.path.exists(icon_path):
+                    action.setIcon(QIcon(icon_path))
+                else:
+                    # Create a simple colored square icon
+                    pixmap = QPixmap(16, 16)
+                    pixmap.fill(QColor(200, 200, 200))  # Default gray
+                    action.setIcon(QIcon(pixmap))
+            
+            # Disable actions for maps that aren't loaded
+            if feature not in self.feature_pixmaps:
+                action.setEnabled(False)
+                action.setToolTip("This map was not loaded. Select it in the startup window to enable.")
+            
+            self.feature_data[feature]['action'] = action
+            map_type_toolbar.addAction(action)
+
+    def create_action(self, text, icon_name, tooltip, callback):
+        """Helper method to create a QAction with icon (if exists) or text fallback"""
+        # Always show text in toolbar buttons
+        action = QAction(text, self)
+        
+        # Try to load the icon from several possible locations and formats
+        icon_found = False
+        
+        # Check for SVG icon
+        icon_path = os.path.join(self.icon_directory, icon_name)
+        if os.path.exists(icon_path):
+            action.setIcon(QIcon(icon_path))
+            icon_found = True
+        
+        # Check for SVG with extension explicitly specified
+        if not icon_found and not icon_name.lower().endswith('.svg'):
+            icon_path = os.path.join(self.icon_directory, f"{icon_name}.svg")
+            if os.path.exists(icon_path):
+                action.setIcon(QIcon(icon_path))
+                icon_found = True
+        
+        # Check for PNG icon
+        if not icon_found:
+            png_path = os.path.join(self.icon_directory, f"{icon_name.split('.')[0]}.png")
+            if os.path.exists(png_path):
+                action.setIcon(QIcon(png_path))
+                icon_found = True
+        
+        # If no icon was found, don't worry, just use text
+        if not icon_found:
+            print(f"Icon not found: {icon_name}. Using text instead.")
+        
+        action.setToolTip(tooltip)
+        action.triggered.connect(callback)
+        
+        return action
+
+    def show_search(self):
+        """Show the search box"""
+        self.search_box.show()
+        self.search_box.setFocus()
+
+    def copy_feature(self):
+        """Copy the current feature from the hovered province"""
+        self.is_picker_active = True
+        try:
+            feature_key = self.locations[self.original_color_HEX][self.current_map_type]
+            feature_current = self.feature_data[self.current_map_type]['labels'][feature_key]
+            color_HEX = feature_current['color']
+            color_RGB = hex_to_rgb(color_HEX)
+            self.picker_pixmap.fill(QColor(*color_RGB))
+            self.picker_lbl_pixmap.setPixmap(self.picker_pixmap)
+            desc_short = str(feature_current['desc_short'])
+            self.picker_lbl_description.setText(desc_short)
+            self.picker_map_type = self.current_map_type
+            self.picker_pixmap_RGB = color_RGB
+            self.picker_key = feature_key
+            self.picker_lbl_map_type_display.setText(f"{self.feature_data[self.current_map_type]['display_name']} - ")
+        except Exception as e:
+            self.picker_lbl_pixmap.clear()
+            self.picker_lbl_map_type_display.clear()
+            self.picker_lbl_description.setText('Invalid')
+
+    def paste_feature(self):
+        """Paste the copied feature to the province under the cursor"""
+        start_time_block = time.perf_counter()
+        
+        prev_time = time.perf_counter()
+        cursor_pos = self.view.mapFromGlobal(self.cursor().pos())
+        current_time = time.perf_counter()
+        print(f"Time for cursor_pos: {current_time - prev_time:.1f} s")
+        prev_time = current_time
+
+        scene_pos = self.view.mapToScene(cursor_pos)
+        current_time = time.perf_counter()
+        print(f"Time for scene_pos: {current_time - prev_time:.1f} s")
+        prev_time = current_time
+
+        color_HEX = self.fill_region(int(scene_pos.x()), int(scene_pos.y()))
+        current_time = time.perf_counter()
+        print(f"Time for fill_region: {current_time - prev_time:.1f} s")
+        prev_time = current_time
+
+        if color_HEX:
+            self.locations[color_HEX][self.picker_map_type] = self.picker_key
+            current_time = time.perf_counter()
+            print(f"Time for updating locations: {current_time - prev_time:.1f} s")
+        
+        end_time_block = time.perf_counter()
+        print(f"Total time for paste operation: {end_time_block - start_time_block:.1f} s\n")
+        
     def create_legend_layout(self):
         # Create legend box with fixed height
         self.legend_layout = QHBoxLayout()
@@ -148,36 +346,6 @@ class MapEditor(QWidget):
             stretch = feature_data_current['bottom_layout_width_weight'] if 'bottom_layout_width_weight' in feature_data_current else 1
             bottom_layout.addLayout(vbl_feature, stretch)
         return bottom_layout
-
-    def create_map_type_buttons(self):
-        hbl_buttons = QHBoxLayout()
-        for feature in self.feature_data:
-            hotkeyVar = self.feature_data[feature]['hotkey']
-            hotkey = hotkeyVar[0] if isinstance(hotkeyVar, list) else hotkeyVar
-            button = QPushButton(f"{self.feature_data[feature]['display_name']} ({chr(hotkey)})")
-            button.setFixedWidth(MAP_TYPE_BUTTON_WIDTH)
-            button.clicked.connect(lambda checked, f=feature: self.set_map_type(f))
-            self.feature_data[feature]['button'] = button
-            
-            # Disable buttons for maps that aren't loaded
-            if feature not in self.feature_pixmaps:
-                button.setStyleSheet("background-color: #cccccc; color: #888888;")
-                button.setEnabled(False)
-                button.setToolTip("This map was not loaded. Select it in the startup window to enable.")
-                
-            hbl_buttons.addWidget(button)
-        
-        # Add save and help buttons
-        save_button = QPushButton("Save")
-        save_button.setFixedWidth(80)
-        save_button.clicked.connect(self.export_changes)
-        help_button = QPushButton("Help")
-        help_button.setFixedWidth(80)
-        help_button.clicked.connect(self.show_help_dialog)
-        hbl_buttons.addWidget(save_button)
-        hbl_buttons.addWidget(help_button)
-        hbl_buttons.addStretch()
-        return hbl_buttons
 
     def createFeatureDisplayComponent(self, feature_type):
         self.feature_displays[feature_type] = {
@@ -251,16 +419,20 @@ class MapEditor(QWidget):
             is_active = active_map == feature
             is_available = feature in self.feature_pixmaps
             
-            if is_available:
+            if 'action' in self.feature_data[feature]:
+                # For actions, we need to use font weight in the text instead of stylesheet
+                # or just make it checked to show as active
+                self.feature_data[feature]['action'].setChecked(is_active)
+            
+            if is_available and 'button' in self.feature_data[feature]:
                 self.feature_data[feature]['button'].setStyleSheet(active_style if is_active else inactive_style)
-            else:
+            elif 'button' in self.feature_data[feature]:
                 # Disable buttons for maps that aren't loaded
                 self.feature_data[feature]['button'].setStyleSheet("background-color: #cccccc; color: #888888;")
                 self.feature_data[feature]['button'].setEnabled(False)
 
         self.current_map_type = active_map
         self.update_legend(active_map)
-
 
     def update_legend(self, map_type: str):
         """Update the legend based on the current map type"""
@@ -318,8 +490,7 @@ class MapEditor(QWidget):
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_F:
-            self.search_box.show()
-            self.search_box.setFocus()
+            self.show_search()
         elif event.key() == Qt.Key_Escape:
             self.search_box.hide()
             self.search_box.clear()
@@ -330,55 +501,10 @@ class MapEditor(QWidget):
             elif event.key() == Qt.Key_B:
                 self.show_feature_selector()
             elif event.key() == Qt.Key_C:
-                self.is_picker_active = True
-                try:
-                    feature_key = self.locations[self.original_color_HEX][self.current_map_type]
-                    feature_current = self.feature_data[self.current_map_type]['labels'][feature_key]
-                    color_HEX = feature_current['color']
-                    color_RGB = hex_to_rgb(color_HEX)
-                    self.picker_pixmap.fill(QColor(*color_RGB))
-                    self.picker_lbl_pixmap.setPixmap(self.picker_pixmap)
-                    desc_short = str(feature_current['desc_short'])
-                    self.picker_lbl_description.setText(desc_short)
-                    self.picker_map_type = self.current_map_type
-                    self.picker_pixmap_RGB = color_RGB
-                    self.picker_key = feature_key
-                    self.picker_lbl_map_type_display.setText(f"{self.feature_data[self.current_map_type]['display_name']} - ")
-                except Exception as e:
-                    self.picker_lbl_pixmap.clear()
-                    self.picker_lbl_map_type_display.clear()
-                    self.picker_lbl_description.setText('Invalid')
+                self.copy_feature()
                 return
             elif event.key() == Qt.Key_V:
-                start_time_block = time.perf_counter()
-                
-                # Instruction 1
-                prev_time = time.perf_counter()
-                cursor_pos = self.view.mapFromGlobal(self.cursor().pos())
-                current_time = time.perf_counter()
-                print(f"Time for cursor_pos: {current_time - prev_time:.1f} s")
-                prev_time = current_time
-
-                # Instruction 2
-                scene_pos = self.view.mapToScene(cursor_pos)
-                current_time = time.perf_counter()
-                print(f"Time for scene_pos: {current_time - prev_time:.1f} s")
-                prev_time = current_time
-
-                # Instruction 3
-                color_HEX = self.fill_region(int(scene_pos.x()), int(scene_pos.y()))
-                current_time = time.perf_counter()
-                print(f"Time for fill_region: {current_time - prev_time:.1f} s")
-                prev_time = current_time
-
-                # Instruction 4 (conditional)
-                if color_HEX:
-                    self.locations[color_HEX][self.picker_map_type] = self.picker_key
-                    current_time = time.perf_counter()
-                    print(f"Time for updating locations: {current_time - prev_time:.1f} s")
-                
-                end_time_block = time.perf_counter()
-                print(f"Total time for Key_V block: {end_time_block - start_time_block:.1f} s\n")
+                self.paste_feature()
             elif event.key() == Qt.Key_Z:
                 self.undo_last_fill()
             elif event.key() == Qt.Key_Y:

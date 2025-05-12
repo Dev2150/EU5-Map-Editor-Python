@@ -75,6 +75,12 @@ class StartupWindow(QDialog):
                     enabled_maps = self.settings.get("enabled_maps", ["climate"])
                     checkbox.setChecked(map_type in enabled_maps)
                     
+                    # Add special handling for climate checkbox
+                    if map_type == "climate":
+                        checkbox.setToolTip("Climate map is required and cannot be deselected")
+                        # Use a slightly different style to indicate it's always selected
+                        checkbox.setStyleSheet("font-weight: bold;")
+                    
                     checkbox.toggled.connect(lambda checked, mt=map_type: self.on_checkbox_toggled(mt, checked))
                     group_layout.addWidget(checkbox)
             
@@ -151,8 +157,13 @@ class StartupWindow(QDialog):
         if not self.validate_game_directory():
             return
             
-        # Ensure at least one map is selected
+        # Ensure climate map is always selected
         enabled_maps = self.settings.get("enabled_maps", [])
+        if "climate" not in enabled_maps:
+            enabled_maps.append("climate")
+            self.settings["enabled_maps"] = enabled_maps
+            
+        # Ensure at least one map is selected
         if not enabled_maps:
             # Auto-select climate if nothing is selected
             self.settings["enabled_maps"] = ["climate"]
@@ -172,6 +183,15 @@ class StartupWindow(QDialog):
         
     def on_checkbox_toggled(self, map_type, checked):
         enabled_maps = self.settings.get("enabled_maps", [])
+        
+        # Prevent climate from being unchecked
+        if map_type == "climate" and not checked:
+            # Block signals to prevent infinite recursion
+            if map_type in self.checkboxes:
+                self.checkboxes[map_type].blockSignals(True)
+                self.checkboxes[map_type].setChecked(True)
+                self.checkboxes[map_type].blockSignals(False)
+            return
         
         if checked and map_type not in enabled_maps:
             enabled_maps.append(map_type)
@@ -254,6 +274,10 @@ class StartupWindow(QDialog):
             }
         
     def save_settings(self):
+        # Ensure climate is always enabled
+        if "enabled_maps" in self.settings and "climate" not in self.settings["enabled_maps"]:
+            self.settings["enabled_maps"].append("climate")
+            
         with open(self.settings_file, 'w') as f:
             json.dump(self.settings, f, indent=4)
             
