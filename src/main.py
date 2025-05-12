@@ -1,6 +1,7 @@
 import re
 import sys
 import time
+import json
 from ast import literal_eval
 from os import listdir, path
 
@@ -18,48 +19,15 @@ FILE_IMAGE_LOCATIONS_INPUT = PATH_RES + 'provinces.png'
 FILE_TXT_TERRAINS = f'{PATH_RES}mappings/province_terrains.txt'
 PATH_LOCATION_MAPPINGS = f'{PATH_RES}mappings/location_'
 PATH_FEATURE_DETAILS = f'{PATH_RES}feature_details/feature_details_'
+FILE_FEATURE_DATA = f'{PATH_RES}mappings/feature_data.json'
 
-# Define map feature types
-feature_data = {
-    'climate': {
-        'display_name': 'Climate',
-        'key': 'climate',
-        'hotkey': ['Q', 'F1'],
-        'needs_rgb_conversion': True,
-        'isGradient': False,
-        'bottom_layout_stretch': 4,
-    },
-    'topography': {
-        'display_name': 'Topography',
-        'key': 'topography',
-        'hotkey': ['W', 'F2'],
-        'needs_rgb_conversion': True,
-        'isGradient': False,
-        'bottom_layout_stretch': 1,
-    },
-    'vegetation': {
-        'display_name': 'Vegetation',
-        'key': 'vegetation',
-        'hotkey': ['E', 'F3'],
-        'needs_rgb_conversion': True,
-        'isGradient': False,
-        'bottom_layout_stretch': 1,
-    },
-    # 'low_wheat': {
-    #     'display_name': 'Wheat (Low)',
-    #     'hotkey': ['R', 'F5'],
-    #     'needs_rgb_conversion': True,
-    #     'isGradient': True,
-    #     'bottom_layout_stretch': 1,
-    # },
-    # 'low_tubers': {
-    #     'display_name': 'Tubers (Low)',
-    #     'hotkey': ['T', 'F6'],
-    #     'needs_rgb_conversion': True,
-    #     'isGradient': True,
-    #     'bottom_layout_stretch': 1,
-    # }
-}
+def load_feature_data() -> dict:
+    """Load feature configuration data from JSON file."""
+    with open(FILE_FEATURE_DATA, 'r') as f:
+        return json.load(f)
+
+# Load feature data from JSON
+feature_data = load_feature_data()
 
 labels_suitability = ['Unsuitable', 'Suboptimal', 'Favourable', 'Excellent', 'Exceptional']
 
@@ -140,7 +108,7 @@ def load_province_features(filepath: str) -> dict:
     return mapping
 
 
-def construct_map_from_mapping(p_dict_locations: dict, p_arr_original: ndarray, p_feature_data: dict, isGradient=False,
+def construct_map_from_mapping(p_dict_locations: dict, p_arr_original: ndarray, p_feature_data: dict, isNumerical=False,
                                needsConversionToRGB=False):
     # Create a new dictionary with only the specific feature
     mapping = {hex_code: location_data[feature_type]
@@ -224,11 +192,11 @@ if __name__ == "__main__":
     time_task = resetTimer('Loading feature details and data...')
     for feature_type, config in feature_data.items():
 
-        isGradient = config['isGradient']
+        isNumerical = config['isNumerical']
         filePath = config['file_details'] if 'file_details' in config else f'{PATH_LOCATION_MAPPINGS}{feature_type}.csv'
         load_location_mappings(filePath, feature_type)
 
-        if not isGradient:
+        if not isNumerical:
             filePath = config['file_data'] if 'file_data' in config else f'{PATH_FEATURE_DETAILS}{feature_type}.csv'
             feature_data[feature_type]['labels'] = load_province_features(filePath)
             # details = load_feature_details(dict_locations, config['key'])
@@ -252,8 +220,8 @@ if __name__ == "__main__":
         feature_pixmaps[feature_type] = construct_map_from_mapping(
             dict_locations,
             arr_original,
-            None if config['isGradient'] else feature_data[feature_type]['labels'],
-            config['isGradient'],
+            None if config['isNumerical'] else feature_data[feature_type]['labels'],
+            config['isNumerical'],
             config['needs_rgb_conversion']
         )
         print(f"{feature_type} map created in {time.time() - time_task:.2f} seconds")

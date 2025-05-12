@@ -144,7 +144,7 @@ class MapEditor(QWidget):
             vbl_feature = QVBoxLayout()  # Create new layout variable instead of assigning to string
             vbl_feature.addLayout(hbl_feature)
             vbl_feature.addWidget(feature_data_current['desc_long'])
-            stretch = feature_data_current['bottom_layout_stretch'] if 'bottom_layout_stretch' in feature_data_current else 1
+            stretch = feature_data_current['bottom_layout_width_weight'] if 'bottom_layout_width_weight' in feature_data_current else 1
             bottom_layout.addLayout(vbl_feature, stretch)
         return bottom_layout
 
@@ -259,7 +259,7 @@ class MapEditor(QWidget):
 
         # Create new legend items
         feature_data_current = self.feature_data[map_type]
-        if not feature_data_current['isGradient']:
+        if not feature_data_current['isNumerical']:
             for label_name, label in feature_data_current['labels'].items():
                 if map_type == 'climate' and label_name in ['W']:
                     continue
@@ -363,6 +363,8 @@ class MapEditor(QWidget):
                 self.undo_last_fill()
             elif event.key() == Qt.Key_Y:
                 self.redo_last_fill()
+            elif event.key() == Qt.Key_H:
+                self.show_help_dialog()
         else:
             for feature_type, feature in self.feature_data.items():
                 if 'hotkey' in feature and event.key() in feature['hotkey']:
@@ -679,7 +681,7 @@ class MapEditor(QWidget):
         layout = QVBoxLayout()
         
         # Handle gradient and non-gradient features differently
-        if feature_data_current['isGradient']:
+        if feature_data_current['isNumerical']:
             # For gradient features, show a text input for value 0-255
             label = QLabel(f"Enter {feature_data_current['display_name']} value (0-255):")
             layout.addWidget(label)
@@ -749,7 +751,7 @@ class MapEditor(QWidget):
         if result == QDialog.Accepted:
             self.is_picker_active = True
             
-            if feature_data_current['isGradient']:
+            if feature_data_current['isNumerical']:
                 # Handle gradient feature selection
                 try:
                     value = int(text_input.text())
@@ -802,6 +804,7 @@ class MapEditor(QWidget):
         Hotkeys:
         
         General:
+        - Ctrl+H: Show this help dialog
         - Ctrl+S: Save/Export changes
         - Ctrl+B: Open feature selector
         - Ctrl+C: Copy feature from current location
@@ -809,15 +812,13 @@ class MapEditor(QWidget):
         - Ctrl+Z: Undo last change
         - Ctrl+Y: Redo last change
         - F: Open search box
-        - ESC: Close search box
+        - ESC: Close search/help box
         
         Map Type Selection:
-        - Climate hotkey: Switch to climate map
-        - Topography hotkey: Switch to topography map
-        - Vegetation hotkey: Switch to vegetation map
+        - Key in paranthesis: Switch to map
         
         Mouse:
-        - Left click: View location info
+        - Hover over location: View location info
         - Left click + drag: Pan view
         - Mouse wheel: Zoom in/out
         """

@@ -1,0 +1,40 @@
+{
+  "climate": {
+    "display_name": "Climate",
+    "key": "climate",
+    "hotkey": ["Q", "F1"],
+    "needs_rgb_conversion": true,
+    "isNumerical": false,
+    "bottom_layout_width_weight": 4
+  },
+  "topography": {
+    "display_name": "Topography",
+    "key": "topography",
+    "hotkey": ["W", "F2"],
+    "needs_rgb_conversion": true,
+    "isNumerical": false,
+    "bottom_layout_width_weight": 1
+  },
+  "vegetation": {
+    "display_name": "Vegetation",
+    "key": "vegetation",
+    "hotkey": ["E", "F3"],
+    "needs_rgb_conversion": true,
+    "isNumerical": false,
+    "bottom_layout_width_weight": 1
+  },
+  "low_wheat": {
+    "display_name": "Wheat (Low)",
+    "hotkey": ["R", "F5"],
+    "needs_rgb_conversion": true,
+    "isNumerical": true,
+    "bottom_layout_width_weight": 1
+  },
+  "low_tubers": {
+    "display_name": "Tubers (Low)",
+    "hotkey": ["T", "F6"],
+    "needs_rgb_conversion": true,
+    "isNumerical": true,
+    "bottom_layout_width_weight": 1
+  }
+} 
