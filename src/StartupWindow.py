@@ -1,7 +1,9 @@
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QPushButton, QCheckBox, QGroupBox, QLabel, QFileDialog, QHBoxLayout
+from PyQt5.QtWidgets import QProgressDialog, QApplication
 from PyQt5.QtCore import Qt
 import json
 import os
+import pickle
 
 class StartupWindow(QDialog):
     def __init__(self):
@@ -11,6 +13,7 @@ class StartupWindow(QDialog):
         self.settings_file = "editor_settings.json"
         self.settings = self.load_settings()
         self.feature_data = self.load_feature_data()
+        self.imported_project = None
         
         self.init_ui()
         
@@ -98,10 +101,20 @@ class StartupWindow(QDialog):
         group.setLayout(group_layout)
         layout.addWidget(group)
         
+        # Buttons layout
+        buttons_layout = QHBoxLayout()
+        
+        # Open project button
+        open_project_button = QPushButton("Open Existing Project")
+        open_project_button.clicked.connect(self.import_project)
+        buttons_layout.addWidget(open_project_button)
+        
         # Start button
         start_button = QPushButton("Start Map Editor")
         start_button.clicked.connect(self.validate_and_accept)
-        layout.addWidget(start_button)
+        buttons_layout.addWidget(start_button)
+        
+        layout.addLayout(buttons_layout)
         
         self.setLayout(layout)
         
@@ -153,6 +166,11 @@ class StartupWindow(QDialog):
             return True
     
     def validate_and_accept(self):
+        # If a project was imported, we can skip validation
+        if self.imported_project:
+            self.accept()
+            return
+            
         # Validate game directory
         if not self.validate_game_directory():
             return
@@ -228,7 +246,57 @@ class StartupWindow(QDialog):
                     self.checkboxes[map_type].setChecked(True)
             
             self.save_settings()
+    
+    def import_project(self):
+        """Import a previously saved project and set it for the MapEditor"""
+        # Open file dialog to select the project file
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Project File", "exports", "Project Files (project_state.json)"
+        )
+        
+        if not file_path:
+            return
+        
+        try:
+            # Load the project data
+            with open(file_path, 'r', encoding='utf-8') as f:
+                project_data = json.load(f)
             
+            # Extract the project directory (parent of the file)
+            project_dir = os.path.dirname(file_path)
+            
+            # Store the loaded project
+            self.imported_project = {
+                'project_data': project_data,
+                'project_dir': project_dir
+            }
+            
+            # Ensure required maps are enabled in settings
+            required_maps = set(project_data.get('loaded_maps', ['climate']))
+            enabled_maps = set(self.settings.get("enabled_maps", ["climate"]))
+            
+            # Update enabled maps to include all required by the project
+            self.settings["enabled_maps"] = list(enabled_maps.union(required_maps))
+            
+            # If climate not in enabled maps, add it
+            if "climate" not in self.settings["enabled_maps"]:
+                self.settings["enabled_maps"].append("climate")
+            
+            # Save settings
+            self.save_settings()
+            
+            # Show success message
+            self.dir_validation_label.setText(f"Project loaded from {file_path}")
+            self.dir_validation_label.setStyleSheet("color: green;")
+            
+            # Automatically accept after successful import
+            self.accept()
+            
+        except Exception as e:
+            # Show error message
+            self.dir_validation_label.setText(f"Error importing project: {str(e)}")
+            self.dir_validation_label.setStyleSheet("color: red;")
+
     def load_settings(self):
         if os.path.exists(self.settings_file):
             try:
@@ -282,4 +350,7 @@ class StartupWindow(QDialog):
             json.dump(self.settings, f, indent=4)
             
     def get_settings(self):
-        return self.settings 
+        return self.settings
+        
+    def get_imported_project(self):
+        return self.imported_project 

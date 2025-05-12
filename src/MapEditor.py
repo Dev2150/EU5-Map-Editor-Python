@@ -3,12 +3,15 @@ import numpy as np
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QColor, QPixmap, QImage, QIntValidator, QIcon
 from PyQt5.QtWidgets import QVBoxLayout, QLabel, QHBoxLayout, QGraphicsScene, QLineEdit, QWidget, QPushButton, QApplication
-from PyQt5.QtWidgets import QFileDialog, QDialog, QComboBox, QToolBar, QMainWindow, QAction, QStatusBar
+from PyQt5.QtWidgets import QFileDialog, QDialog, QComboBox, QToolBar, QMainWindow, QAction, QStatusBar, QProgressDialog
 from numpy import ndarray
 from datetime import datetime
 import os
 import time
 import json
+import pickle
+import sys
+import subprocess
 
 from CustomGraphicsView import CustomGraphicsView
 from auxiliary import rgb_to_hex, hex_to_rgb, create_legend_item, convert_key_string_to_qt
@@ -149,11 +152,14 @@ class MapEditor(QMainWindow):
         search_action = self.create_action("Search", "search", "Search for province (F)", self.show_search)
         toolbar.addAction(search_action)
 
-        # Add save and help actions
+        # Add save, open, and help actions
         toolbar.addSeparator()
         
         save_action = self.create_action("Save", "save", "Save/Export changes (Ctrl+S)", self.export_changes)
         toolbar.addAction(save_action)
+        
+        restart_action = self.create_action("Home", "home", "Restart the application", self.restart_application)
+        toolbar.addAction(restart_action)
         
         help_action = self.create_action("Help", "help", "Show help dialog (Ctrl+H)", self.show_help_dialog)
         toolbar.addAction(help_action)
@@ -835,6 +841,19 @@ class MapEditor(QMainWindow):
                     if column in location_data:
                         f.write(f"{hex_code},{location_data[column]}\n")
             print(f"Exported {column} data to {export_path}")
+        
+        # Save the undo stack and current map type to a file
+        project_data = {
+            'undo_stack': self.undo_stack,
+            'current_map_type': self.current_map_type,
+            'loaded_maps': list(self.feature_pixmaps.keys())
+        }
+        
+        project_file = os.path.join(export_dir, 'project_state.json')
+        with open(project_file, 'w', encoding='utf-8') as f:
+            json.dump(project_data, f, indent=2)
+        
+        print(f"Saved project state with {len(self.undo_stack)} changes to {project_file}")
 
         # Update last export state
         self.last_export_stack_size = len(self.undo_stack)
@@ -1004,7 +1023,6 @@ class MapEditor(QMainWindow):
         
         General:
         - Ctrl+H: Show this help dialog
-        - Ctrl+S: Save/Export changes
         - Ctrl+Q: Quit application
         - Ctrl+B: Open feature selector
         - Ctrl+C: Copy feature from current location
@@ -1021,6 +1039,10 @@ class MapEditor(QMainWindow):
         - Hover over location: View location info
         - Left click + drag: Pan view
         - Mouse wheel: Zoom in/out
+        
+        Project Files:
+        - Save (Ctrl+S): Exports all changes and saves the project state with undo history
+        - Restart: Restarts the application (prompts to save if unsaved changes exist)
         
         Note: Some maps may be disabled if they weren't selected in the startup window.
         To enable these maps, restart the application and select them in the startup window.
@@ -1063,3 +1085,76 @@ class MapEditor(QMainWindow):
         else:
             # No unsaved changes, close normally
             event.accept()
+            
+    def restart_application(self):
+        """Restart the application"""
+        if len(self.undo_stack) > self.last_export_stack_size:
+            # There are unsaved changes
+            from PyQt5.QtWidgets import QMessageBox
+            reply = QMessageBox.question(
+                self, 'Unsaved Changes',
+                'You have unsaved changes. Do you want to export before restarting?',
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+                QMessageBox.Yes
+            )
+            
+            if reply == QMessageBox.Yes:
+                # Export changes then restart
+                self.export_changes()
+                self._perform_restart()
+            elif reply == QMessageBox.No:
+                # Restart without exporting
+                self._perform_restart()
+            # If Cancel, do nothing
+        else:
+            # No unsaved changes, restart normally
+            self._perform_restart()
+            
+    def _perform_restart(self):
+        """Perform the actual restart operation"""
+        python = sys.executable
+        script_path = os.path.abspath(sys.argv[0])
+        subprocess.Popen([python, script_path])
+        # Exit the current process
+        sys.exit(0)
+
+    def _batch_apply_feature_change(self, map_type, target_color_RGB, new_color_RGB):
+        """Optimized version of _apply_feature_change for batch processing"""
+        # Get the image from pixmap (only once per batch)
+        if not hasattr(self, '_batch_image') or self._batch_map_type != map_type:
+            self._batch_map_type = map_type
+            self._batch_image = self.feature_pixmaps[map_type].toImage()
+            width, height = self._batch_image.width(), self._batch_image.height()
+            ptr = self._batch_image.bits()
+            ptr.setsize(height * width * 4)  # 4 bytes per pixel (RGBA)
+            self._batch_array = np.frombuffer(ptr, np.uint8).reshape((height, width, 4))
+        
+        # Find matching region in original array
+        mask = ((self.original_array[:,:,0] == target_color_RGB[0]) & 
+                (self.original_array[:,:,1] == target_color_RGB[1]) & 
+                (self.original_array[:,:,2] == target_color_RGB[2]))
+        
+        # Create color array for assignment
+        color_array = np.array([new_color_RGB[2], new_color_RGB[1], new_color_RGB[0], 255], dtype=np.uint8)
+        
+        # Update the array
+        self._batch_array[mask] = color_array
+
+    def _finalize_feature_changes(self, map_type):
+        """Convert the batch-processed array back to a pixmap and update the display"""
+        if hasattr(self, '_batch_array') and self._batch_map_type == map_type:
+            width, height = self._batch_image.width(), self._batch_image.height()
+            new_pixmap_image = QImage(self._batch_array.data, width, height, QImage.Format_ARGB32)
+            new_pixmap = QPixmap.fromImage(new_pixmap_image)
+            
+            # Update the pixmap
+            self.feature_pixmaps[map_type] = new_pixmap
+            
+            # Update display if this is the current map type
+            if self.current_map_type == map_type:
+                self.pixmap_item.setPixmap(new_pixmap)
+            
+            # Clear the batch processing variables
+            del self._batch_array
+            del self._batch_image
+            del self._batch_map_type

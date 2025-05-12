@@ -7,7 +7,8 @@ from os import listdir, path
 
 import numpy as np
 from PyQt5.QtGui import QPixmap, QImage
-from PyQt5.QtWidgets import QApplication, QMessageBox
+from PyQt5.QtWidgets import QApplication, QMessageBox, QDialog, QVBoxLayout, QLabel, QPushButton
+from PyQt5.QtCore import Qt
 from numpy import ndarray
 
 from MapEditor import MapEditor
@@ -169,6 +170,108 @@ def convert_hotkey_strings_to_qt():
         feature['hotkey'] = [convert_key_string_to_qt(hotkey) for hotkey in feature['hotkey']]
 
 
+def apply_imported_changes(map_editor, changes):
+    """Apply a series of changes from the imported undo stack efficiently"""
+    if not changes:
+        return
+    
+    # Create progress dialog
+    progress = QDialog(map_editor)
+    progress.setWindowTitle("Importing Project")
+    progress.setWindowModality(Qt.WindowModal)
+    progress.setMinimumWidth(400)
+    
+    progress_layout = QVBoxLayout()
+    progress_message = QLabel("Applying changes...")
+    progress_layout.addWidget(progress_message)
+    progress.setLayout(progress_layout)
+    
+    progress.show()
+    QApplication.processEvents()
+    
+    try:
+        # Group changes by map type and target color to optimize processing
+        change_groups = {}
+        for i, change in enumerate(changes):
+            map_type = change['map_type']
+            location_HEX = change['location_HEX']
+            new_feature = change['new_feature']
+            
+            # Store only the final state for each location+map_type
+            key = (map_type, location_HEX)
+            change_groups[key] = (i, new_feature)
+            
+            # Update progress message periodically
+            if i % 50 == 0:
+                progress_message.setText(f"Processing changes... ({i}/{len(changes)})")
+                QApplication.processEvents()
+        
+        # Process the grouped changes by map type
+        map_changes = {}
+        for (map_type, location_HEX), (i, new_feature) in change_groups.items():
+            if map_type not in map_changes:
+                map_changes[map_type] = []
+            
+            # Append the change details
+            map_changes[map_type].append({
+                'location_HEX': location_HEX,
+                'new_feature': new_feature,
+                'original_index': i
+            })
+        
+        # Process each map type
+        completed = 0
+        for map_type, changes_list in map_changes.items():
+            # Switch to the current map type once
+            map_editor.set_map_type(map_type)
+            progress_message.setText(f"Applying changes for {map_type}... ({completed}/{len(changes)})")
+            QApplication.processEvents()
+            
+            # Apply all changes for this map type
+            for change_info in changes_list:
+                location_HEX = change_info['location_HEX']
+                new_feature = change_info['new_feature']
+                
+                # Get the original feature
+                original_feature = map_editor.locations[location_HEX][map_type]
+                
+                # Update the location data
+                map_editor.locations[location_HEX][map_type] = new_feature
+                
+                # Add to the undo stack
+                map_editor.undo_stack.append({
+                    'map_type': map_type,
+                    'location_HEX': location_HEX,
+                    'old_feature': original_feature,
+                    'new_feature': new_feature
+                })
+                
+                # Get colors for visual update
+                target_color_RGB = hex_to_rgb(location_HEX)
+                new_color_RGB = hex_to_rgb(map_editor.feature_data[map_type]['labels'][new_feature]['color'])
+                
+                # Apply the visual change but without the expensive map_type switching
+                map_editor._batch_apply_feature_change(map_type, target_color_RGB, new_color_RGB)
+                
+                completed += 1
+                if completed % 50 == 0:
+                    progress_message.setText(f"Applying changes... ({completed}/{len(changes)})")
+                    QApplication.processEvents()
+            
+            # Final visual update for this map type
+            map_editor._finalize_feature_changes(map_type)
+        
+        # Update the counter
+        map_editor.update_undo_counter()
+        
+        # Update the display with the current map type
+        map_editor.set_map_type(map_editor.current_map_type)
+        
+    finally:
+        # Close progress dialog
+        progress.accept()
+
+
 if __name__ == "__main__":
     # try:
     app: QApplication = QApplication(sys.argv)
@@ -185,21 +288,26 @@ if __name__ == "__main__":
     locations_file = settings.get("locations_file", "")
     state_regions_path = settings.get("state_regions_path", "")
     
-    # Validate the required paths exist before proceeding
-    missing_paths = []
-    if not locations_file or not path.exists(locations_file):
-        missing_paths.append("Provinces map file")
+    # Check if a project was imported
+    imported_project = startup_window.get_imported_project()
     
-    if not state_regions_path or not path.exists(state_regions_path):
-        missing_paths.append("State regions directory")
-    
-    if missing_paths:
-        QMessageBox.critical(
-            None, 
-            "Error", 
-            f"The following required paths were not found:\n- {'\n- '.join(missing_paths)}\n\nPlease restart and select a valid game directory."
-        )
-        sys.exit(1)
+    # If no project was imported, validate paths
+    if not imported_project:
+        # Validate the required paths exist before proceeding
+        missing_paths = []
+        if not locations_file or not path.exists(locations_file):
+            missing_paths.append("Provinces map file")
+        
+        if not state_regions_path or not path.exists(state_regions_path):
+            missing_paths.append("State regions directory")
+        
+        if missing_paths:
+            QMessageBox.critical(
+                None, 
+                "Error", 
+                f"The following required paths were not found:\n- {'\n- '.join(missing_paths)}\n\nPlease restart and select a valid game directory."
+            )
+            sys.exit(1)
 
     start_time = time.time()
 
@@ -207,12 +315,6 @@ if __name__ == "__main__":
     time_task = resetTimer('Starting state parsing...')
     dict_locations: dict = parse_states(state_regions_path)
     print(f"State parsing completed in {time.time() - time_task:.2f} seconds")
-
-    # time_task = resetTimer('Loading feature details...')
-    # details_koppen: dict = load_details_feature(FILE_TXT_DETAILS_KOPPEN)
-    # details_topography: dict = load_details_topography(FILE_TXT_DETAILS_TOPOGRAPHY)
-    # details_vegetation: dict = load_details_vegetation(FILE_TXT_DETAILS_VEGETATION)
-    # print(f"Feature details loaded in {time.time() - time_task:.2f} seconds")
 
     time_task = resetTimer('Loading V3 province terrains...')
     location_to_v3TerrainType: dict = load_province_V3_terrain_types(FILE_TXT_TERRAINS)
@@ -228,7 +330,6 @@ if __name__ == "__main__":
         if not isNumerical:
             filePath = config['file_data'] if 'file_data' in config else f'{PATH_FEATURE_DETAILS}{feature_type}.csv'
             feature_data[feature_type]['labels'] = load_province_features(filePath)
-            # details = load_feature_details(dict_locations, config['key'])
         else:
             feature_data[feature_type]['labels'] = {}
             labels_suitability_len = len(labels_suitability)
@@ -273,8 +374,27 @@ if __name__ == "__main__":
     )
     map_editor.resize(1200, 800)
     
-    # Set the default map type if one was selected
-    if default_map_type and default_map_type in feature_data and default_map_type in feature_pixmaps:
+    # Apply imported project changes if a project was imported
+    if imported_project:
+        project_data = imported_project['project_data']
+        
+        # Set the initial map type from the project
+        initial_map_type = project_data.get('current_map_type', 'climate')
+        if initial_map_type and initial_map_type in feature_pixmaps:
+            map_editor.set_map_type(initial_map_type)
+            
+        # Apply all changes from the project
+        changes = project_data.get('undo_stack', [])
+        if changes:
+            apply_imported_changes(map_editor, changes)
+            print(f"Applied {len(changes)} changes from imported project")
+            
+            # Set last_export_stack_size to match current undo stack size
+            # This prevents the "unsaved changes" prompt when quitting without making new changes
+            map_editor.last_export_stack_size = len(map_editor.undo_stack)
+    
+    # Set the default map type if one was selected and no project was imported
+    elif default_map_type and default_map_type in feature_data and default_map_type in feature_pixmaps:
         map_editor.set_map_type(default_map_type)
     elif feature_pixmaps:  # If default map not available, use the first available map
         map_editor.set_map_type(list(feature_pixmaps.keys())[0])
