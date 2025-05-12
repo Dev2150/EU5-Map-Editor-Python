@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import QApplication
 from numpy import ndarray
 
 from MapEditor import MapEditor
+from StartupWindow import StartupWindow
 from auxiliary import hex_to_rgb, resetTimer, get_array_from_image, rgb_to_hex, convert_key_string_to_qt
 
 PATH_RES = 'res/'
@@ -172,6 +173,16 @@ if __name__ == "__main__":
     # try:
     app: QApplication = QApplication(sys.argv)
 
+    # Show startup window first
+    startup_window = StartupWindow()
+    if startup_window.exec_() != StartupWindow.Accepted:
+        sys.exit(0)  # Exit if user cancels
+
+    # Get settings from startup window
+    settings = startup_window.get_settings()
+    default_map_type = settings.get("default_map_type", "climate")
+    enabled_maps = settings.get("enabled_maps", ["climate"])
+
     start_time = time.time()
 
     # Pre-load all required data
@@ -216,15 +227,19 @@ if __name__ == "__main__":
     # Create feature maps
     feature_pixmaps = {}
     for feature_type, config in feature_data.items():
-        time_task = resetTimer(f'Creating {feature_type} map...')
-        feature_pixmaps[feature_type] = construct_map_from_mapping(
-            dict_locations,
-            arr_original,
-            None if config['isNumerical'] else feature_data[feature_type]['labels'],
-            config['isNumerical'],
-            config['needs_rgb_conversion']
-        )
-        print(f"{feature_type} map created in {time.time() - time_task:.2f} seconds")
+        # Only load enabled maps
+        if feature_type in enabled_maps:
+            time_task = resetTimer(f'Creating {feature_type} map...')
+            feature_pixmaps[feature_type] = construct_map_from_mapping(
+                dict_locations,
+                arr_original,
+                None if config['isNumerical'] else feature_data[feature_type]['labels'],
+                config['isNumerical'],
+                config['needs_rgb_conversion']
+            )
+            print(f"{feature_type} map created in {time.time() - time_task:.2f} seconds")
+        else:
+            print(f"Skipping {feature_type} map (not enabled)")
 
     print(f"Arrays from images retrieved in {time.time() - time_task:.2f} seconds")
 
@@ -239,6 +254,13 @@ if __name__ == "__main__":
         feature_data
     )
     map_editor.resize(1200, 800)
+    
+    # Set the default map type if one was selected
+    if default_map_type and default_map_type in feature_data and default_map_type in feature_pixmaps:
+        map_editor.set_map_type(default_map_type)
+    elif feature_pixmaps:  # If default map not available, use the first available map
+        map_editor.set_map_type(list(feature_pixmaps.keys())[0])
+        
     map_editor.show()
     print(f"Map editor ready! It took a total of {time.time() - start_time:.2f} seconds")
     sys.exit(app.exec_())

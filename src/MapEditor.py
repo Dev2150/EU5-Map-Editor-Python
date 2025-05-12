@@ -14,8 +14,9 @@ from CustomGraphicsView import CustomGraphicsView
 from auxiliary import rgb_to_hex, hex_to_rgb, create_legend_item, convert_key_string_to_qt
 from config import UNKNOWN_REGION, active_style, inactive_style
 
-DEFAULT_MAP_TYPE = 'climate'
+# Default map type is now managed by settings in editor_settings.json
 
+MAP_TYPE_BUTTON_WIDTH = 100
 
 class MapEditor(QWidget):
     def __init__(self, p_arr_locations: ndarray, p_feature_pixmaps: dict, p_locations: dict,
@@ -70,7 +71,7 @@ class MapEditor(QWidget):
         self.setLayout(main_layout)
 
         # Initialize button states and legend
-        self.set_map_type(DEFAULT_MAP_TYPE)
+        self.set_map_type('climate')  # Default to climate, but this will be overridden by main.py
 
         # Add picker-related attributes
         self.is_picker_active = False
@@ -154,9 +155,16 @@ class MapEditor(QWidget):
             hotkeyVar = self.feature_data[feature]['hotkey']
             hotkey = hotkeyVar[0] if isinstance(hotkeyVar, list) else hotkeyVar
             button = QPushButton(f"{self.feature_data[feature]['display_name']} ({chr(hotkey)})")
-            button.setFixedWidth(150)
+            button.setFixedWidth(MAP_TYPE_BUTTON_WIDTH)
             button.clicked.connect(lambda checked, f=feature: self.set_map_type(f))
             self.feature_data[feature]['button'] = button
+            
+            # Disable buttons for maps that aren't loaded
+            if feature not in self.feature_pixmaps:
+                button.setStyleSheet("background-color: #cccccc; color: #888888;")
+                button.setEnabled(False)
+                button.setToolTip("This map was not loaded. Select it in the startup window to enable.")
+                
             hbl_buttons.addWidget(button)
         
         # Add save and help buttons
@@ -232,11 +240,23 @@ class MapEditor(QWidget):
     def set_map_type(self, active_map: str):
         if self.current_map_type == active_map:
             return
+            
+        if active_map not in self.feature_pixmaps:
+            print(f"Warning: Map type '{active_map}' not loaded")
+            return
 
         self.pixmap_item.setPixmap(self.feature_pixmaps[active_map])
 
         for feature in self.feature_data:
-            self.feature_data[feature]['button'].setStyleSheet(active_style if active_map == feature else inactive_style)
+            is_active = active_map == feature
+            is_available = feature in self.feature_pixmaps
+            
+            if is_available:
+                self.feature_data[feature]['button'].setStyleSheet(active_style if is_active else inactive_style)
+            else:
+                # Disable buttons for maps that aren't loaded
+                self.feature_data[feature]['button'].setStyleSheet("background-color: #cccccc; color: #888888;")
+                self.feature_data[feature]['button'].setEnabled(False)
 
         self.current_map_type = active_map
         self.update_legend(active_map)
@@ -368,7 +388,9 @@ class MapEditor(QWidget):
         else:
             for feature_type, feature in self.feature_data.items():
                 if 'hotkey' in feature and event.key() in feature['hotkey']:
-                    self.set_map_type(feature_type)
+                    # Skip maps that aren't loaded
+                    if feature_type in self.feature_pixmaps:
+                        self.set_map_type(feature_type)
                     break
         super().keyPressEvent(event)
 
@@ -673,6 +695,22 @@ class MapEditor(QWidget):
         if not self.current_map_type or self.current_map_type not in self.feature_data:
             return
             
+        if self.current_map_type not in self.feature_pixmaps:
+            # Show error message if the current map type isn't loaded
+            QApplication.beep()
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Map Not Loaded")
+            layout = QVBoxLayout()
+            message = QLabel(f"The {self.feature_data[self.current_map_type]['display_name']} map is not loaded.\n"
+                            "Please restart the application and select this map in the startup window.")
+            layout.addWidget(message)
+            button = QPushButton("OK")
+            button.clicked.connect(dialog.accept)
+            layout.addWidget(button)
+            dialog.setLayout(layout)
+            dialog.exec_()
+            return
+            
         dialog = QDialog(self)
         feature_data_current = self.feature_data[self.current_map_type]
         dialog.setWindowTitle(f"Select {feature_data_current['display_name']} Feature")
@@ -815,12 +853,15 @@ class MapEditor(QWidget):
         - ESC: Close search/help box
         
         Map Type Selection:
-        - Key in paranthesis: Switch to map
+        - Key in parenthesis: Switch to map (if loaded)
         
         Mouse:
         - Hover over location: View location info
         - Left click + drag: Pan view
         - Mouse wheel: Zoom in/out
+        
+        Note: Some maps may be disabled if they weren't selected in the startup window.
+        To enable these maps, restart the application and select them in the startup window.
         """
         
         text_label = QLabel(help_text)
