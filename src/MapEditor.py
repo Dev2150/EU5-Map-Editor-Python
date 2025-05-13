@@ -13,7 +13,9 @@ import json
 import pickle
 import sys
 import subprocess
+import hashlib
 from PyQt5.QtWidgets import QSizePolicy
+from collections import defaultdict
 
 from CustomGraphicsView import CustomGraphicsView
 from auxiliary import rgb_to_hex, hex_to_rgb, create_legend_item, convert_key_string_to_qt
@@ -43,6 +45,10 @@ class MapEditor(QMainWindow):
         self.locations = p_locations
         self.location_to_v3TerrainType = p_location_to_v3TerrainType
         self.feature_data = p_feature_data
+
+        # Load or precompute province patch indices for faster filling
+        self.province_patches = self._load_or_precompute_province_patches()
+        print(f"Loaded {len(self.province_patches)} province patches")
 
         # Try to load icon directory from settings
         self.icon_directory = os.path.join("res", "icons", "feather")
@@ -317,7 +323,7 @@ class MapEditor(QMainWindow):
         """Paste the copied feature to the province under the cursor"""
         start_time_block = time.perf_counter()
         
-        prev_time = time.perf_counter()
+        prev_time = start_time_block
         cursor_pos = self.view.mapFromGlobal(self.cursor().pos())
         current_time = time.perf_counter()
         print(f"Time for cursor_pos: {current_time - prev_time:.1f} s")
@@ -625,6 +631,130 @@ class MapEditor(QMainWindow):
         self.search_box.setStyleSheet("background-color: #FFE4E1;")  # Light red
         QTimer.singleShot(1000, lambda: self.search_box.setStyleSheet(""))
 
+    def _get_province_cache_path(self):
+        """
+        Generate a cache filename based on the folder name and province image size.
+        """
+        # Create cache directory if it doesn't exist
+        cache_dir = os.path.join("cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        
+        # Get the current working directory name (folder name)
+        folder_name = os.path.basename(os.getcwd())
+        
+        # Get the image dimensions
+        height, width, _ = self.original_array.shape
+        
+        # Create a filename using folder name and image dimensions
+        return os.path.join(cache_dir, f"province_patches_{folder_name}_{width}x{height}.pkl")
+
+    def _load_or_precompute_province_patches(self):
+        """
+        Try to load province patches from a cache file,
+        or precompute them if the cache doesn't exist.
+        """
+        cache_path = self._get_province_cache_path()
+        
+        # Check if cache file exists
+        if os.path.exists(cache_path):
+            print(f"Loading province patches from cache: {cache_path}")
+            try:
+                start_time = time.perf_counter()
+                with open(cache_path, 'rb') as f:
+                    province_patches = pickle.load(f)
+                end_time = time.perf_counter()
+                print(f"Loaded province patches from cache in {end_time - start_time:.2f} seconds")
+                return province_patches
+            except Exception as e:
+                print(f"Error loading province patches from cache: {e}")
+                print("Will precompute province patches instead")
+        else:
+            print(f"Cache file not found: {cache_path}")
+            print("Will precompute province patches")
+        
+        # If we got here, we need to precompute the patches
+        province_patches = self._precompute_province_patches()
+        
+        # Save the precomputed patches to cache
+        try:
+            print(f"Saving province patches to cache: {cache_path}")
+            start_time = time.perf_counter()
+            with open(cache_path, 'wb') as f:
+                pickle.dump(province_patches, f)
+            end_time = time.perf_counter()
+            print(f"Saved province patches to cache in {end_time - start_time:.2f} seconds")
+        except Exception as e:
+            print(f"Error saving province patches to cache: {e}")
+        
+        return province_patches
+
+    def _precompute_province_patches(self):
+        """
+        Precompute province patches by grouping pixels by their color.
+        Returns a dictionary mapping color hexcodes to arrays of pixel indices.
+        """
+        print("Precomputing province patches... (this may take a moment)")
+        start_time = time.perf_counter()
+        
+        # Create a dictionary to hold pixel indices for each unique color
+        province_patches = {}
+        
+        # Get the shape of the image
+        height, width, _ = self.original_array.shape
+        
+        # Get total colors to process and initialize counter
+        total_colors = len(self.locations.keys())
+        processed_colors = 0
+        last_percentage = -1  # Initialize to -1 to ensure first update is shown
+        
+        # For each color in locations, find all matching pixels
+        for color_hex in self.locations.keys():
+            # Calculate and display progress
+            processed_colors += 1
+            current_percentage = int((processed_colors / total_colors) * 100)
+            
+            # Only print when percentage changes by at least 1%
+            if current_percentage > last_percentage:
+                # Calculate estimated time remaining
+                if processed_colors > 1:  # Need at least one sample to estimate
+                    elapsed_time = time.perf_counter() - start_time
+                    time_per_province = elapsed_time / processed_colors
+                    remaining_provinces = total_colors - processed_colors
+                    estimated_time_remaining = time_per_province * remaining_provinces
+                    
+                    # Format the time remaining nicely
+                    if estimated_time_remaining < 60:
+                        time_str = f"{estimated_time_remaining:.1f} seconds"
+                    elif estimated_time_remaining < 3600:
+                        time_str = f"{estimated_time_remaining/60:.1f} minutes"
+                    else:
+                        time_str = f"{estimated_time_remaining/3600:.1f} hours"
+                    
+                    print(f"Progress: {current_percentage}% ({processed_colors}/{total_colors} provinces) - Est. remaining: {time_str}")
+                else:
+                    print(f"Progress: {current_percentage}% ({processed_colors}/{total_colors} provinces)")
+                
+                last_percentage = current_percentage
+            
+            # Convert hex to RGB
+            color_rgb = hex_to_rgb(color_hex)
+            
+            # Create a mask for pixels matching this color
+            mask = ((self.original_array[:,:,0] == color_rgb[0]) & 
+                    (self.original_array[:,:,1] == color_rgb[1]) & 
+                    (self.original_array[:,:,2] == color_rgb[2]))
+            
+            # Get the indices of matching pixels
+            matching_pixels = np.where(mask)
+            
+            # Store the indices as a tuple of arrays (y_indices, x_indices)
+            province_patches[color_hex] = matching_pixels
+        
+        end_time = time.perf_counter()
+        print(f"Province patches precomputed in {end_time - start_time:.2f} seconds")
+        
+        return province_patches
+
     def fill_region(self, x: int, y: int) -> str | None:
         start_time_fill_region = time.perf_counter()
         prev_time = start_time_fill_region
@@ -718,10 +848,10 @@ class MapEditor(QMainWindow):
         prev_time = current_time
         
         # Apply the visual change
-        # Instruction 13: Call _apply_feature_change
-        self._apply_feature_change(self.picker_map_type, target_color_RGB, self.picker_pixmap_RGB)
+        # Instruction 13: Call _apply_feature_change with optimized version
+        self._apply_feature_change_optimized(self.picker_map_type, target_color_HEX, self.picker_pixmap_RGB)
         current_time = time.perf_counter()
-        print(f"fill_region - Time for _apply_feature_change: {current_time - prev_time:.1f} s")
+        print(f"fill_region - Time for _apply_feature_change_optimized: {current_time - prev_time:.1f} s")
         prev_time = current_time
         
         # Update the undo counter
@@ -731,94 +861,92 @@ class MapEditor(QMainWindow):
         print(f"fill_region - Total time: {end_time_fill_region - start_time_fill_region:.4f} s\n")
         return target_color_HEX
 
-    def _apply_feature_change(self, map_type: str, target_color_RGB: tuple, new_color_RGB: tuple) -> None:
-        """Helper method to apply visual changes to the pixmap"""
+    def _apply_feature_change_optimized(self, map_type: str, target_color_HEX: str, new_color_RGB: tuple) -> None:
+        """
+        Optimized version of _apply_feature_change that uses precomputed province patches
+        """
         start_time_block = time.perf_counter()
         prev_time = start_time_block
-        print(f"\n--- _apply_feature_change ({map_type}) ---")
+        print(f"\n--- _apply_feature_change_optimized ({map_type}) ---")
 
-        # Instruction 1: Set map type
+        # Set map type
         self.set_map_type(map_type)
         current_time = time.perf_counter()
-        print(f"_apply_feature_change - Time for set_map_type: {current_time - prev_time:.1f} s")
+        print(f"_apply_feature_change_optimized - Time for set_map_type: {current_time - prev_time:.4f} s")
         prev_time = current_time
-
-        # Instruction 2: Get QImage from pixmap
+        
+        # Get QImage from pixmap
         image_feature_pixmap = self.feature_pixmaps[map_type].toImage()
         current_time = time.perf_counter()
-        print(f"_apply_feature_change - Time for toImage(): {current_time - prev_time:.1f} s")
+        print(f"_apply_feature_change_optimized - Time for toImage(): {current_time - prev_time:.4f} s")
         prev_time = current_time
-
-        # Instruction 3: Get image dimensions
+        
+        # Get image dimensions
         width, height = image_feature_pixmap.width(), image_feature_pixmap.height()
         current_time = time.perf_counter()
-        print(f"_apply_feature_change - Time for width(), height(): {current_time - prev_time:.1f} s")
+        print(f"_apply_feature_change_optimized - Time for width(), height(): {current_time - prev_time:.4f} s")
         prev_time = current_time
-
-        # Convert QImage to numpy array for faster processing
-        # Instruction 4: Get image bits
+        
+        # Convert QImage to numpy array
         ptr = image_feature_pixmap.bits()
-        current_time = time.perf_counter()
-        print(f"_apply_feature_change - Time for bits(): {current_time - prev_time:.1f} s")
-        prev_time = current_time
-
-        # Instruction 5: Set size of pointer
         ptr.setsize(height * width * 4)  # 4 bytes per pixel (RGBA)
-        current_time = time.perf_counter()
-        print(f"_apply_feature_change - Time for setsize(): {current_time - prev_time:.1f} s")
-        prev_time = current_time
-
-        # Instruction 6: Create numpy array from buffer
         arr_new_image = np.frombuffer(ptr, np.uint8).reshape((height, width, 4))
         current_time = time.perf_counter()
-        print(f"_apply_feature_change - Time for np.frombuffer().reshape(): {current_time - prev_time:.1f} s")
+        print(f"_apply_feature_change_optimized - Time for np.frombuffer().reshape(): {current_time - prev_time:.4f} s")
         prev_time = current_time
-
-        # Find matching region in original array
-        # Optimized mask creation using component-wise comparison
-        mask = ((self.original_array[:,:,0] == target_color_RGB[0]) & 
-                (self.original_array[:,:,1] == target_color_RGB[1]) & 
-                (self.original_array[:,:,2] == target_color_RGB[2]))
-        current_time = time.perf_counter()
-        print(f"_apply_feature_change - Time for mask creation: {current_time - prev_time:.1f} s")
-        prev_time = current_time
-
-        # Create color array once for faster assignment
-        color_array = np.array([new_color_RGB[2], new_color_RGB[1], new_color_RGB[0], 255], dtype=np.uint8)
         
-        # Use broadcasting for faster assignment
-        arr_new_image[mask] = color_array
-        current_time = time.perf_counter()
-        print(f"_apply_feature_change - Time for arr_new_image[mask] assignment: {current_time - prev_time:.1f} s")
-        prev_time = current_time
-
+        # Get precomputed patch indices
+        if target_color_HEX in self.province_patches:
+            # Get patch indices
+            y_indices, x_indices = self.province_patches[target_color_HEX]
+            
+            # Create color array with BGR order (Qt uses BGRA)
+            # Alpha is always 255 (fully opaque)
+            color_array = np.array([new_color_RGB[2], new_color_RGB[1], new_color_RGB[0], 255], dtype=np.uint8)
+            
+            # Apply color to only the patch indices
+            arr_new_image[y_indices, x_indices] = color_array
+            
+            current_time = time.perf_counter()
+            print(f"_apply_feature_change_optimized - Time for direct patch fill: {current_time - prev_time:.4f} s")
+            prev_time = current_time
+        else:
+            # Fallback to original implementation if patch not found
+            print(f"Warning: Province patch for {target_color_HEX} not found, using fallback method")
+            
+            # Convert hex to RGB
+            target_color_RGB = hex_to_rgb(target_color_HEX)
+            
+            # Find matching region in original array
+            mask = ((self.original_array[:,:,0] == target_color_RGB[0]) & 
+                    (self.original_array[:,:,1] == target_color_RGB[1]) & 
+                    (self.original_array[:,:,2] == target_color_RGB[2]))
+            
+            # Create color array with BGR order and alpha always 255
+            color_array = np.array([new_color_RGB[2], new_color_RGB[1], new_color_RGB[0], 255], dtype=np.uint8)
+            
+            # Apply color to all matching pixels
+            arr_new_image[mask] = color_array
+            
+            current_time = time.perf_counter()
+            print(f"_apply_feature_change_optimized - Time for fallback fill: {current_time - prev_time:.4f} s")
+            prev_time = current_time
+        
         # Convert back to QPixmap
-        # Instruction 9: Create QImage from numpy array
         new_pixmap_image = QImage(arr_new_image.data, width, height, QImage.Format_ARGB32)
-        current_time = time.perf_counter()
-        print(f"_apply_feature_change - Time for QImage creation from data: {current_time - prev_time:.1f} s")
-        prev_time = current_time
-
-        # Instruction 10: Create QPixmap from QImage
         new_pixmap = QPixmap.fromImage(new_pixmap_image)
         current_time = time.perf_counter()
-        print(f"_apply_feature_change - Time for QPixmap.fromImage(): {current_time - prev_time:.1f} s")
+        print(f"_apply_feature_change_optimized - Time for QPixmap conversion: {current_time - prev_time:.4f} s")
         prev_time = current_time
         
         # Update the display
-        # Instruction 11: Update feature_pixmaps dictionary
         self.feature_pixmaps[map_type] = new_pixmap
-        current_time = time.perf_counter()
-        print(f"_apply_feature_change - Time for self.feature_pixmaps assignment: {current_time - prev_time:.1f} s")
-        prev_time = current_time
-
-        # Instruction 12: Set pixmap on item
         self.pixmap_item.setPixmap(new_pixmap)
         current_time = time.perf_counter()
-        print(f"_apply_feature_change - Time for self.pixmap_item.setPixmap(): {current_time - prev_time:.1f} s")
+        print(f"_apply_feature_change_optimized - Time for updating display: {current_time - prev_time:.4f} s")
         
         end_time_block = time.perf_counter()
-        print(f"_apply_feature_change - Total time: {end_time_block - start_time_block:.4f} s\n")
+        print(f"_apply_feature_change_optimized - Total time: {end_time_block - start_time_block:.4f} s\n")
 
     def update_undo_counter(self):
         """Update the undo counter in the status bar"""
@@ -839,9 +967,8 @@ class MapEditor(QMainWindow):
         # Update the location's feature back to the old one
         self.locations[change['location_HEX']][map_type] = old_feature
         
-        # Apply the visual change
-        target_color_RGB = hex_to_rgb(change['location_HEX'])
-        self._apply_feature_change(map_type, target_color_RGB, old_color)
+        # Apply the visual change with optimized method
+        self._apply_feature_change_optimized(map_type, change['location_HEX'], old_color)
         
         # Update undo counter
         self.update_undo_counter()
@@ -865,9 +992,8 @@ class MapEditor(QMainWindow):
         # Update the location's feature to the new one
         self.locations[change['location_HEX']][map_type] = new_feature
         
-        # Apply the visual change
-        target_color_RGB = hex_to_rgb(change['location_HEX'])
-        self._apply_feature_change(map_type, target_color_RGB, new_color)
+        # Apply the visual change with optimized method
+        self._apply_feature_change_optimized(map_type, change['location_HEX'], new_color)
         
         # Update undo counter
         self.update_undo_counter()
